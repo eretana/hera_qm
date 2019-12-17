@@ -38,8 +38,8 @@ def calculate_correlation_matrix(sm,df,pols=['XX']):
         corr_matrix[pol] = np.empty((nants,nants))
         for i in range(nants):
             for j in range(nants):
-                ant1 = antnumsAll[i]
-                ant2 = antnumsAll[j]
+                ant1 = antnums[i]
+                ant2 = antnums[j]
                 s = sm.get_data(ant1,ant2,pol)
                 d = df.get_data(ant1,ant2,pol)
                 even = (s + d)/2
@@ -50,7 +50,7 @@ def calculate_correlation_matrix(sm,df,pols=['XX']):
                 corr_matrix[pol][i,j] = np.abs(np.average(product))
     return corr_matrix
 
-def get_internode_correlations(sm,corr_matrix,pols=['XX']):
+def get_per_node_correlations(sm,corr_matrix,pols=['XX']):
     """Compute the median internode correlation metric for each node.
 
     Parameters
@@ -72,6 +72,8 @@ def get_internode_correlations(sm,corr_matrix,pols=['XX']):
         indexed by (node, 'inter' or 'intra', pol).
     """
     
+    h = cm_hookup.Hookup()
+    x = h.get_hookup('HH')
     antnums=sm.antenna_numbers
     nants = len(antnums)
     nodes = get_nodes(antnums)
@@ -99,7 +101,7 @@ def get_internode_correlations(sm,corr_matrix,pols=['XX']):
                 key2 = 'HH%i:A' % (ant2)
                 n2 = x[key2].get_part_in_hookup_from_type('node')['E<ground'][2]
                 for pol in pols:
-                    dat = data[pol][i,j]
+                    dat = corr_matrix[pol][i,j]
                     if n1 == n2:
                         nodeCorrs[n1]['intra'][pol].append(dat)
                         nodeCorrs[n2]['intra'][pol].append(dat)
