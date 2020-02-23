@@ -1421,6 +1421,13 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
         raise ValueError("sig_inits must be a tuple or a list.")
     if not isinstance(sig_adjs, (list,tuple)):
         raise ValueError("sig_adjs must be a tuple or a list.")
+    if not isinstance(skip_wgts, (list,tuple)):
+        raise ValueError("skip_wgts must be a tuple or a list")
+    if not len(sig_inits) == len(sig_adjs):
+        raise ValueError("sig_adjs must have same length as sig_inits.")
+    if not len(skip_wgts) == len(sig_adjs):
+        raise ValueError("skip_wgts must have same length as sig_inits.")
+
     #load in autocorrelations
     bls = [(ant, ant) for ant in uv_autos.antenna_numbers if not ant in ex_ants ]
     uv_autos = uv_autos.select(bls=bls, inplace=False, polarizations=use_polarizations)
