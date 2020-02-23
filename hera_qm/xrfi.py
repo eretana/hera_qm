@@ -135,7 +135,7 @@ def resolve_xrfi_path(xrfi_path, fname, jd_subdir=False, label=''):
         {JD}_xrfi (when xrfi_path is ''). Default is False.
         This option assumes the standard HERA naming scheme: zen.{JD}.{JD_decimal}.HH.uvh5
     label : str, optional
-        a little extra something to keep track of different flagging on the disk.
+        a little extra something to keep track of different flagging runs on the disk.
     Returns
     -------
     dirname : str
@@ -150,6 +150,8 @@ def resolve_xrfi_path(xrfi_path, fname, jd_subdir=False, label=''):
             # Get JD string
             xrfi_subfolder = '.'.join(os.path.basename(fname).split('.')[0:3]) + '.xrfi'
             dirname = os.path.join(dirname, xrfi_subfolder)
+            if not label == '':
+                dirname = dirname.replace('.xrfi', '.' + label + '.xrfi')
         if not os.path.exists(dirname):
             os.makedirs(dirname)
     return dirname
@@ -1607,11 +1609,8 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
     return_history : bool
         if True, return a list flags and metrics from each iteration
     label : str, optional
-        There may arise an occasion in which we want to compare different xrfi runs
-        with different parameters. Doing this without labels on filenames
-        is a pain in the ass
-        (yeah I'm talking about all you other xrfi wrappers out there!) so here's an
-        optional label. Ur welcome. default 'auto'.
+        file label for comparing different runs
+        default 'auto'.
     Returns
     -------
 
@@ -1621,9 +1620,8 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
     history = 'Flagging command: "' + history + '", Using ' + hera_qm_version_str + '\n'
     history += 'Also using hera_cal version ' + hera_cal_version_str + '\n'
     history += 'And using uvtools ' + uvtools_version_str + '\n'
-    dirname = resolve_xrfi_path(xrfi_path, data_file, jd_subdir=True)
+    dirname = resolve_xrfi_path(xrfi_path, data_file, jd_subdir=True, label=label)
     #this method supports labeling. Cough Cough.
-    dirname = dirname.replace('.xrfi', '.' + label+'.xrfi')
     xants = process_ex_ants(ex_ants=ex_ants)
     uva = HERAData(data_file)
     metrics, flags = xrfi_delay_filter(uv_autos=uva, xants=xants, filter_half_widths=filter_half_widths,
