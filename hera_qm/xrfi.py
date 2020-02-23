@@ -1377,7 +1377,9 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
     '''
     Flag off of autocorrelations of a uvdata object using a combination of median filter and iterative
     flagging of global chi_sq outliers after fitting and subtracting smooth foregrounds.
-
+    #
+    #XXX Add a reflection fitting step to pick up really low level stuff.
+    #
     Parameters
     ----------
 
@@ -1464,12 +1466,13 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
     info={}
     resid_normed =DataContainer({})
     #For a series of initial sigmas and adj sigmas.
+    filter_cache = {}
     for sig_init, sig_adj, skip_wgt in zip(sig_inits, sig_adjs, skip_wgts):
         #fourier filter the data using the current set of RFI flags.
         for bl in data:
             model[bl], resid[bl], info[bl] = dspec.fourier_filter(x=freqs, data=data[bl], wgts=~flags[bl], filter_centers=[0.], filter2d=False,
                                                             filter_half_widths=[filter_size], suppression_factors=[1e-9], skip_wgt=skip_wgt, filter_dim=1,
-                                                            mode='dpss_leastsq', fitting_options={'eigenval_cutoff':[1e-12]})
+                                                            mode='dpss_leastsq', fitting_options={'eigenval_cutoff':[1e-12]}, cache=filter_cache)
             skip_flags[bl] = np.zeros((nt, nf)).astype(bool)
             #flag times that were skipped by fourier interpolation based on skip_wgt
             for j in range(nt):
@@ -1489,9 +1492,9 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
         metric_history.append(copy.deepcopy(xrfi_m))
         flags = DataContainer({k:xrfi_f.flag_array[:,:,0] for k in flags})
     if return_history:
-        return flag_history, metric_history
+        return metric_history, flag_history
     else:
-        return flags, metrics
+        return metrics, flags
 
 
 #############################################################################
