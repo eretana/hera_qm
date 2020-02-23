@@ -1451,10 +1451,12 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
     #run initial xrfi pipe with 'detrend_medfilt'.
     xrfi_m, xrfi_f = xrfi_pipe(uv_autos, Kf=8)
     flag_history = []
+    metric_history = []
     data, flags, _ = uv_autos.read()
     # | in the original flags (xrfi_pipe may already do this).
     flags = DataContainer({k:flags[k] | xrfi_f.flag_array[:,:,0] for k in flags})
-    flag_history.append(copy.deepcopy(xrfi_f.flag_array[:,:,0]))
+    flag_history.append(copy.deepcopy(xrfi_f))
+    metric_history.append(copy.deepcopy(xrfi_m))
     #initialize data containers to store model and residual from fourier filter.
     resid=DataContainer({})
     model=DataContainer({})
