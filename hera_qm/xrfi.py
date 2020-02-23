@@ -16,10 +16,24 @@ from .metrics_io import process_ex_ants
 import warnings
 import glob
 import copy
-from uvtools import dspec
 try:
     from hera_cal.io import DataContainer
     from hera_cal.io import HERAData
+    from uvtools import dspec
+    import uvtools.version as uvt_version
+    import hera_cal.version as hc_version
+
+    uvtools_version_info = uvt_version.construct_version_info()
+    uvtools_version_str = 'Version={0}'.format(uvtools_version_info['version'])+\
+    ' git origin = {0}'.format(uvtools_version_info['git_origin']) + \
+    ' git branch = {0}'.format(uvtools_version_info['git_branch']) + \
+    ' git description = {0}'.format(uvtools_version_info['git_description'])
+
+    hera_cal_version_info = hc_version.construct_version_info()
+    hera_cal_version_str = 'Version={0}'.format(hera_cal_version_info['version'])+\
+    ' git origin = {0}'.format(hera_cal_version_info['git_origin']) + \
+    ' git branch = {0}'.format(hera_cal_version_info['git_branch']) + \
+    ' git description = {0}'.format(hera_cal_version_info['git_description'])
     HERA_CAL = True
 except:
     HERA_CAL = False
@@ -107,7 +121,7 @@ def flag_xants(uv, xants, inplace=True, run_check=True,
         return uvo
 
 
-def resolve_xrfi_path(xrfi_path, fname, jd_subdir=False):
+def resolve_xrfi_path(xrfi_path, fname, jd_subdir=False, label=''):
     """Determine xrfi_path based on given directory or default to dirname of given file.
 
     Parameters
@@ -120,7 +134,8 @@ def resolve_xrfi_path(xrfi_path, fname, jd_subdir=False):
         Whether to append the filename directory with a subdirectory with
         {JD}_xrfi (when xrfi_path is ''). Default is False.
         This option assumes the standard HERA naming scheme: zen.{JD}.{JD_decimal}.HH.uvh5
-
+    label : str, optional
+        a little extra something to keep track of different flagging on the disk.
     Returns
     -------
     dirname : str
@@ -1372,8 +1387,10 @@ def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
     return uvf_m, uvf_fws
 
 
-def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5],
-                         use_polarizations=['ee','nn'], return_history=False):
+def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_centers=[0.],
+                      sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5],
+                      polarizations=['ee','nn'], Kt=8, Kf=8, sig_init=6.0, sig_adj=3.0,
+                      return_history=False, verbose=False):
     '''
     Flag off of autocorrelations of a uvdata object using a combination of median filter and iterative
     flagging of global chi_sq outliers after fitting and subtracting smooth foregrounds.
@@ -1387,8 +1404,12 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
              A HERAData object containing autocorrelations to flag on.
     xants : array-like
 `            List of integers specifying antenna numbers fo exclude.
-    filter_size : float
-             delay-width of filter in seconds.
+    filter_half_widths : array-like
+             list of half width of regions in fourier space to filter.
+             default, [200e-9]
+    filter_centers: array-like
+             list of centers of regions in fourier space to filter.
+             default, [0.]
     sig_inits : array-like
              list of float sig_init values to use during global_flagging
     sig_adjs : array-like
@@ -1396,9 +1417,23 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
     skip_wgts : array-like
              list of floats specifying what fraction of frequency RFI flags should cause
              an entire time to be flagged during iterative fourier/global filtering.
-    use_polarizations : array-like
+    polarizations : array-like
              list of strings specifying what polarizations to perform flagging on .
              Default: ['ee', 'nn']
+    Kt : int, optional
+        The size of kernel in time dimension for detrend in
+        initial xrfi algorithm.
+        Default is 8.
+    Kf : int, optional
+        Size of kernel in frequency dimension for detrend in
+        initial xrfi algorithm.
+        Default is 8.
+    sig_init : float, optional
+        The starting number of sigmas to flag on in initial xrfi algorithm.
+        Default is 6.0.
+    sig_adj : float, optional
+        The number of sigmas to flag on in initial xrfi algorithm.
+        Default is 3.0.
     return_history : bool
         if True, return a list flags and metrics from each iteration
     Returns
@@ -1427,8 +1462,12 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
         raise ValueError("uv_autos must be a HERAData object.")
     if not isinstance(xants, (list, tuple, np.ndarray)):
         raise ValueError("xants must be a list or tuple.")
-    if not isinstance(filter_size, (float, np.float)):
-        raise ValueError("filter_size must be a float.")
+    if not isinstance(filter_half_widths, (list, tuple, np.ndarray)):
+        raise ValueError("filter_half_widths must be a list, tuple, or np array")
+    if not isinstance(filter_centers, (list, tuple, np.ndarray)):
+        raise ValueError("filter_centers must be a list, tuple or np array ")
+    if not len(filter_centers) == len(filter_half_widths):
+        raise ValueError("length of filter centers must equal length of filter_half_widths.")
     if not isinstance(sig_inits, (list,tuple, np.ndarray)):
         raise ValueError("sig_inits must be a tuple or a list.")
     if not isinstance(sig_adjs, (list,tuple, np.ndarray)):
@@ -1439,22 +1478,25 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
         raise ValueError("sig_adjs must have same length as sig_inits.")
     if not len(skip_wgts) == len(sig_adjs):
         raise ValueError("skip_wgts must have same length as sig_inits.")
-    uv_autos = uv_autos
+    if not isinstance(polarizations, (list,tuple)):
+        raise ValueError("Polarizations must be a list or tuple.")
     #load in autocorrelations
     bls = [(ant, ant) for ant in uv_autos.antenna_numbers if not ant in xants ]
-    uv_autos = uv_autos.select(bls=bls, inplace=False, polarizations=use_polarizations)
+    #uv_autos = uv_autos.select(bls=bls, inplace=False, polarizations=polarizations)
     #this uvdata object stores residuals.
     uv_resid = copy.deepcopy(uv_autos)
+    data, flags, _ = uv_autos.read(bls=bls, polarizations=polarizations)
+    uv_resid.read(bls=bls, polarizations=polarizations)
     #here is some meta information.
     metas = uv_autos.get_metadata_dict()
     freqs=metas['freqs']
     nf = len(freqs)
     nt = len(metas['times'])
     #run initial xrfi pipe with 'detrend_medfilt'.
-    xrfi_m, xrfi_f = xrfi_pipe(uv_autos, Kf=8)
+    xrfi_m, xrfi_f = xrfi_pipe(uv_autos, Kf=Kf, Kt=Kt,
+                                sig_init=sig_init, sig_adj=sig_adj)
     flag_history = []
     metric_history = []
-    data, flags, _ = uv_autos.read()
     # | in the original flags (xrfi_pipe may already do this).
     flags = DataContainer({k:flags[k] | xrfi_f.flag_array[:,:,0] for k in flags})
     flag_history.append(copy.deepcopy(xrfi_f))
@@ -1467,17 +1509,22 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
     resid_normed =DataContainer({})
     #For a series of initial sigmas and adj sigmas.
     filter_cache = {}
-    for sig_init, sig_adj, skip_wgt in zip(sig_inits, sig_adjs, skip_wgts):
+    iter=0
+    for si, sa, skip_wgt in zip(sig_inits, sig_adjs, skip_wgts):
         #fourier filter the data using the current set of RFI flags.
+        if verbose:
+            print('filtering round %d'%iter)
         for bl in data:
-            model[bl], resid[bl], info[bl] = dspec.fourier_filter(x=freqs, data=data[bl], wgts=~flags[bl], filter_centers=[0.], filter2d=False,
-                                                            filter_half_widths=[filter_size], suppression_factors=[1e-9], skip_wgt=skip_wgt, filter_dim=1,
+            model[bl], resid[bl], info[bl] = dspec.fourier_filter(x=freqs, data=data[bl], wgts=~flags[bl], filter_centers=filter_centers, filter2d=False,
+                                                            filter_half_widths=filter_half_widths, suppression_factors=[1e-9], skip_wgt=skip_wgt, filter_dim=1,
                                                             mode='dpss_leastsq', fitting_options={'eigenval_cutoff':[1e-12]}, cache=filter_cache)
             skip_flags[bl] = np.zeros((nt, nf)).astype(bool)
             #flag times that were skipped by fourier interpolation based on skip_wgt
+            nskip=0
             for j in range(nt):
                 if info[bl][1][j] == 'skipped':
                     skip_flags[bl][j,:] = True
+                    nskip+=1
             #normalize residual by fitted model.
             resid_normed[bl] = resid[bl] / model[bl]
         #Update the RFI flags to include skipped times.
@@ -1486,15 +1533,18 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
         uv_autos.update(flags=flags)
         uv_resid.update(data=resid_normed, flags=flags)
         #run global_outlier pipe on normalized residual.
-        xrfi_m, xrfi_f = chi_sq_pipe(uv_resid, sig_init=sig_init, sig_adj=sig_adj)
+        if verbose:
+            print('global_chi_sq flagging round %d'%iter)
+        xrfi_m, xrfi_f = chi_sq_pipe(uv_resid, sig_init=si, sig_adj=sa)
         #update flags before next Fourier filter
         flag_history.append(copy.deepcopy(xrfi_f))
         metric_history.append(copy.deepcopy(xrfi_m))
         flags = DataContainer({k:xrfi_f.flag_array[:,:,0] for k in flags})
+        iter+=1
     if return_history:
         return metric_history, flag_history
     else:
-        return metrics, flags
+        return xrfi_m, xrfi_f
 
 
 #############################################################################
@@ -1503,6 +1553,94 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
 #         they should stick around with more descriptive names.
 #############################################################################
 
+def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=8, sig_init=6.0,
+                  sig_adj=3.0,  filter_centers=[0.], filter_half_widths=[200e-9], verbose=False,
+                  sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5],
+                  polarizations=['ee','nn'], check_extra=True, run_check_acceptability=True,
+                  run_check=True, clobber=False, label='auto'):
+    """
+    A first round of xrfi that acts on autocorrelations. First performs a median filter
+    then iteratively delay-filters and flags on global z-score outliers.
+    The metrics and flags from each data product and both
+    rounds are stored in the xrfi_path (which defaults to a subdirectory, see
+    xrfi_path below). Also stored are the a priori flags and combined metrics/flags.
+    location of the data file to run xrfi on.
+
+    Parameters
+    ----------
+    data_file : str
+        The raw visibility (or autocorrelation) file to flag.
+    history : str
+        The history string to include in outputs
+    ex_ants : str
+        name of text file with list of antennas to exclude.
+    filter_half_widths : array-like
+             list of half width of regions in fourier space to filter.
+             default, [200e-9]
+    filter_centers: array-like
+             list of centers of regions in fourier space to filter.
+             default, [0.]
+    sig_inits : array-like
+             list of float sig_init values to use during global_flagging
+    sig_adjs : array-like
+             list of float sig_adj values for watershed during global flagging.
+    skip_wgts : array-like
+             list of floats specifying what fraction of frequency RFI flags should cause
+             an entire time to be flagged during iterative fourier/global filtering.
+    polarizations : array-like
+             list of strings specifying what polarizations to perform flagging on .
+             Default: ['ee', 'nn']
+    kt_size : int, optional
+        The size of kernel in time dimension for detrend in
+        initial xrfi algorithm.
+        Default is 8.
+    kf_size : int, optional
+        Size of kernel in frequency dimension for detrend in
+        initial xrfi algorithm.
+        Default is 8.
+    sig_init : float, optional
+        The starting number of sigmas to flag on in initial xrfi algorithm.
+        Default is 6.0.
+    sig_adj : float, optional
+        The number of sigmas to flag on in initial xrfi algorithm.
+        Default is 3.0.
+    return_history : bool
+        if True, return a list flags and metrics from each iteration
+    label : str, optional
+        There may arise an occasion in which we want to compare different xrfi runs
+        with different parameters. Doing this without labels on filenames
+        is a pain in the ass
+        (yeah I'm talking about all you other xrfi wrappers out there!) so here's an
+        optional label. Ur welcome. default 'auto'.
+    Returns
+    -------
+
+    """
+    if not HERA_CAL:
+        raise ImportError("hera_cal required to use flag_delay_iterative")
+    history = 'Flagging command: "' + history + '", Using ' + hera_qm_version_str + '\n'
+    history += 'Also using hera_cal version ' + hera_cal_version_str + '\n'
+    history += 'And using uvtools ' + uvtools_version_str + '\n'
+    dirname = resolve_xrfi_path(xrfi_path, data_file, jd_subdir=True)
+    #this method supports labeling. Cough Cough.
+    dirname = dirname.replace('.xrfi', '.' + label+'.xrfi')
+    xants = process_ex_ants(ex_ants=ex_ants)
+    uva = HERAData(data_file)
+    metrics, flags = xrfi_delay_filter(uv_autos=uva, xants=xants, filter_half_widths=filter_half_widths,
+                                       filter_centers=filter_centers, sig_inits=sig_inits, sig_adjs=sig_adjs,
+                                       skip_wgts=skip_wgts, polarizations=polarizations, Kt=kt_size, verbose=verbose,
+                                       Kf=kf_size, return_history=True, sig_init=sig_init, sig_adj=sig_adj)
+    history += "data_file=" + data_file + "\n xants=" + str(xants) + "\n filter_centers=" + str(filter_centers) \
+             + "\n sig_inits=" + str(sig_inits) + "\n sig_adjs=" + str(sig_adjs) + "\n skip_wgts=" + str(skip_wgts) \
+             + "\n polarizations=" + str(polarizations)  + "\n Kt=" + str(kt_size) + "\n Kf=" + str(kf_size) \
+             + "\n sig_init=" + str(sig_init) + "\n sig_adj=" + str(sig_adj)
+    uvf_dict = {'iter%d_metrics.h5'%d:metric for d, metric in enumerate(metrics)}
+    uvf_dict.update({'iter%d_flags.h5'%d: flag for d, flag in enumerate(flags)})
+    basename = qm_utils.strip_extension(os.path.basename(data_file))
+    for ext, uvf in uvf_dict.items():
+        outfile = '.'.join([basename, ext])
+        outpath = os.path.join(dirname, outfile)
+        uvf.write(outpath, clobber=clobber)
 
 def xrfi_run(ocalfits_file, acalfits_file, model_file, data_file, history,
              xrfi_path='', kt_size=8, kf_size=8, sig_init=5.0, sig_adj=2.0,
