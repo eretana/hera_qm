@@ -15,7 +15,15 @@ from .version import hera_qm_version_str
 from .metrics_io import process_ex_ants
 import warnings
 import glob
+import copy
 from uvtools import dspec
+try:
+    from hera_cal.io import DataContainer
+    from hera_cal.io import HERAData
+    HERA_CAL = True
+except:
+    HERA_CAL = False
+
 
 #############################################################################
 # Utility functions
@@ -1365,7 +1373,7 @@ def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
 
 
 def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5],
-                         use_polarizatons=['ee','nn'], return_history=False):
+                         use_polarizations=['ee','nn'], return_history=False):
     '''
     Flag off of autocorrelations of a uvdata object using a combination of median filter and iterative
     flagging of global chi_sq outliers after fitting and subtracting smooth foregrounds.
@@ -1373,8 +1381,8 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
     Parameters
     ----------
 
-    uv_autos : UVData:
-             A UVData object containing autocorrelations to flag on.
+    uv_autos : HERAData:
+             A HERAData object containing autocorrelations to flag on.
     xants : array-like
 `            List of integers specifying antenna numbers fo exclude.
     filter_size : float
@@ -1410,26 +1418,28 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
         uvf_fws : UVFlag object
               A UVFlag objects with flags after watershed.
     '''
+    if not HERA_CAL:
+        raise ImportError("hera_cal required to use flag_delay_iterative")
     #check that uv_autos is UVData
-    if not issubclass(uv_autos.__class__, UVData):
-        raise ValueError("uv_autos must be a UVData object.")
-    if not isinstance(xants, (list, tuple)):
+    if not issubclass(uv_autos.__class__, HERAData):
+        raise ValueError("uv_autos must be a HERAData object.")
+    if not isinstance(xants, (list, tuple, np.ndarray)):
         raise ValueError("xants must be a list or tuple.")
     if not isinstance(filter_size, (float, np.float)):
         raise ValueError("filter_size must be a float.")
-    if not isinstance(sig_inits, (list,tuple)):
+    if not isinstance(sig_inits, (list,tuple, np.ndarray)):
         raise ValueError("sig_inits must be a tuple or a list.")
-    if not isinstance(sig_adjs, (list,tuple)):
+    if not isinstance(sig_adjs, (list,tuple, np.ndarray)):
         raise ValueError("sig_adjs must be a tuple or a list.")
-    if not isinstance(skip_wgts, (list,tuple)):
+    if not isinstance(skip_wgts, (list,tuple, np.ndarray)):
         raise ValueError("skip_wgts must be a tuple or a list")
     if not len(sig_inits) == len(sig_adjs):
         raise ValueError("sig_adjs must have same length as sig_inits.")
     if not len(skip_wgts) == len(sig_adjs):
         raise ValueError("skip_wgts must have same length as sig_inits.")
-
+    uv_autos = uv_autos
     #load in autocorrelations
-    bls = [(ant, ant) for ant in uv_autos.antenna_numbers if not ant in ex_ants ]
+    bls = [(ant, ant) for ant in uv_autos.antenna_numbers if not ant in xants ]
     uv_autos = uv_autos.select(bls=bls, inplace=False, polarizations=use_polarizations)
     #this uvdata object stores residuals.
     uv_resid = copy.deepcopy(uv_autos)
@@ -1448,9 +1458,9 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
     #initialize data containers to store model and residual from fourier filter.
     resid=DataContainer({})
     model=DataContainer({})
-    skip_flags=DataContainer({})
+    skip_flags={}
     info={}
-    resid_normed = DataContainer({})
+    resid_normed =DataContainer({})
     #For a series of initial sigmas and adj sigmas.
     for sig_init, sig_adj, skip_wgt in zip(sig_inits, sig_adjs, skip_wgts):
         #fourier filter the data using the current set of RFI flags.
@@ -1471,7 +1481,7 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 
         uv_autos.update(flags=flags)
         uv_resid.update(data=resid_normed, flags=flags)
         #run global_outlier pipe on normalized residual.
-        xrfi_m, xrfi_f = xrfi.ch_sq_pipe(uv_resid, sig_init=sig_init, sig_adj=sig_adj)
+        xrfi_m, xrfi_f = chi_sq_pipe(uv_resid, sig_init=sig_init, sig_adj=sig_adj)
         #update flags before next Fourier filter
         flag_history.append(copy.deepcopy(xrfi_f))
         metric_history.append(copy.deepcopy(xrfi_m))
