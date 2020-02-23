@@ -1364,38 +1364,51 @@ def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
     return uvf_m, uvf_fws
 
 
-def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5.], sig_adjs=[2., 2.], skip_wgts=[.15, .5],
-                         use_polarizatons=['ee','nn']):
+def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5],
+                         use_polarizatons=['ee','nn'], return_history=False):
     '''
-    Flag off of autocorrelations of a uvdata object using a combination of median filter and iterative 
-    flagging of global chi_sq outliers after fitting and subtracting smooth foregrounds. 
-    
+    Flag off of autocorrelations of a uvdata object using a combination of median filter and iterative
+    flagging of global chi_sq outliers after fitting and subtracting smooth foregrounds.
+
     Parameters
     ----------
 
-    uv_autos : UVData: 
-             A UVData object containing autocorrelations to flag on. 
+    uv_autos : UVData:
+             A UVData object containing autocorrelations to flag on.
     xants : array-like
-`            List of integers specifying antenna numbers fo exclude. 
-    filter_size : float 
-             delay-width of filter in seconds. 
+`            List of integers specifying antenna numbers fo exclude.
+    filter_size : float
+             delay-width of filter in seconds.
     sig_inits : array-like
-             list of float sig_init values to use during global_flagging 
+             list of float sig_init values to use during global_flagging
     sig_adjs : array-like
-             list of float sig_adj values for watershed during global flagging. 
+             list of float sig_adj values for watershed during global flagging.
     skip_wgts : array-like
-             list of floats specifying what fraction of frequency RFI flags should cause 
-             an entire time to be flagged during iterative fourier/global filtering. 
+             list of floats specifying what fraction of frequency RFI flags should cause
+             an entire time to be flagged during iterative fourier/global filtering.
     use_polarizations : array-like
-             list of strings specifying what polarizations to perform flagging on . 
+             list of strings specifying what polarizations to perform flagging on .
              Default: ['ee', 'nn']
+    return_history : bool
+        if True, return a list flags and metrics from each iteration
     Returns
     -------
-    uvf_m : UVFlag object
-          A UVFlag object with metric after collapsing to a single pol. 
-          The metric returned is the final metric after all iterations. 
-    uvf_fws : UVFlag object 
-          A UVFlag objects with flags after watershed. 
+    if return_history
+        uvf_m : list of UVFlag objects
+              List, where each element is
+              A UVFlag object with metric after collapsing to a single pol.
+              The metric returned is the final metric after all iterations.
+              for each round of flitering and global_chi_sq flagging.
+        uvf_fws : UVFlag object
+              List, where each element
+              A UVFlag objects with flags after watershed.
+              for each round of filtering and global_chi_sq flagging.
+    else:
+        uvf_m : list of UVFlag objects
+              A UVFlag object with metric after collapsing to a single pol.
+              The metric returned is the final metric after all iterations.
+        uvf_fws : UVFlag object
+              A UVFlag objects with flags after watershed.
     '''
     #check that uv_autos is UVData
     if not issubclass(uv_autos.__class__, UVData):
@@ -1409,11 +1422,11 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5.],
     if not isinstance(sig_adjs, (list,tuple)):
         raise ValueError("sig_adjs must be a tuple or a list.")
     #load in autocorrelations
-    bls = [(ant, ant) for ant in uv_autos.antenna_numbers if not ant in ex_ants ]   
+    bls = [(ant, ant) for ant in uv_autos.antenna_numbers if not ant in ex_ants ]
     uv_autos = uv_autos.select(bls=bls, inplace=False, polarizations=use_polarizations)
-    #this uvdata object stores residuals. 
+    #this uvdata object stores residuals.
     uv_resid = copy.deepcopy(uv_autos)
-    #here is some meta information. 
+    #here is some meta information.
     metas = uv_autos.get_metadata_dict()
     freqs=metas['freqs']
     nf = len(freqs)
@@ -1422,38 +1435,44 @@ def flag_delay_iterative(uv_autos, xants, filter_size=200e-9,sig_inits=[6., 5.],
     xrfi_m, xrfi_f = xrfi_pipe(uv_autos, Kf=8)
     flag_history = []
     data, flags, _ = uv_autos.read()
+    # | in the original flags (xrfi_pipe may already do this).
     flags = DataContainer({k:flags[k] | xrfi_f.flag_array[:,:,0] for k in flags})
     flag_history.append(copy.deepcopy(xrfi_f.flag_array[:,:,0]))
-    #whiten with the fit. 
+    #initialize data containers to store model and residual from fourier filter.
     resid=DataContainer({})
     model=DataContainer({})
     skip_flags=DataContainer({})
     info={}
     resid_normed = DataContainer({})
-    #For a series of initial sigmas and adj sigmas. 
-    for sig_init, sig_adj in zip(sig_inits, sig_adjs):
+    #For a series of initial sigmas and adj sigmas.
+    for sig_init, sig_adj, skip_wgt in zip(sig_inits, sig_adjs, skip_wgts):
         #fourier filter the data using the current set of RFI flags.
-        print('Fourier Filtering...')
         for bl in data:
-            model[bl], resid[bl], info[bl] = dspec.fourier_filter(x=freqs, data=data[bl], wgts=~flags[bl], filter_centers=[0.], filter2d=False, 
-                                                            filter_half_widths=[filter_size], suppression_factors=[1e-9], skip_wgt=0.5, filter_dim=1,
+            model[bl], resid[bl], info[bl] = dspec.fourier_filter(x=freqs, data=data[bl], wgts=~flags[bl], filter_centers=[0.], filter2d=False,
+                                                            filter_half_widths=[filter_size], suppression_factors=[1e-9], skip_wgt=skip_wgt, filter_dim=1,
                                                             mode='dpss_leastsq', fitting_options={'eigenval_cutoff':[1e-12]})
             skip_flags[bl] = np.zeros((nt, nf)).astype(bool)
+            #flag times that were skipped by fourier interpolation based on skip_wgt
             for j in range(nt):
                 if info[bl][1][j] == 'skipped':
                     skip_flags[bl][j,:] = True
+            #normalize residual by fitted model.
             resid_normed[bl] = resid[bl] / model[bl]
-        #Update the RFI flags to include skipped times. 
+        #Update the RFI flags to include skipped times.
         flags = DataContainer({k:xrfi_f.flag_array[:,:,0] | skip_flags[k] for k in flags})
+        #update resid and auto flags to current flags and residual.
         uv_autos.update(flags=flags)
         uv_resid.update(data=resid_normed, flags=flags)
-        #run global_outlier pipe 
-        print('Running global filter with sig_init=%.1f, sig_adj=%.1f ...'%(sig_init, sig_adj))
+        #run global_outlier pipe on normalized residual.
         xrfi_m, xrfi_f = xrfi.ch_sq_pipe(uv_resid, sig_init=sig_init, sig_adj=sig_adj)
         #update flags before next Fourier filter
-        flag_history.append(copy.deepcopy(xrfi_f.flag_array[:,:,0]))
+        flag_history.append(copy.deepcopy(xrfi_f))
+        metric_history.append(copy.deepcopy(xrfi_m))
         flags = DataContainer({k:xrfi_f.flag_array[:,:,0] for k in flags})
-    return flags, flag_history
+    if return_history:
+        return flag_history, metric_history
+    else:
+        return flags, metrics
 
 
 #############################################################################
