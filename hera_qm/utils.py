@@ -294,7 +294,7 @@ def get_metrics_ArgumentParser(method_name):
                         help='comma separated float list with filter half widths for each fourier region.')
         ap.add_argument('--sig_inits', default="6., 5., 3.", type=str,
                         help='comma separated list of initial sigmas for iterative flagging.')
-        ap.add_argument('--sig_adjs', default="2., 2., 1.", type=str,
+        ap.add_argument('--sig_adjs', default="3., 2., 1.", type=str,
                         help='comma separated list of sigmas to flag integration-channels adjacent to initial flags.')
         ap.add_argument('--polarizations', default="ee,nn", type=str,
                         help='comma separated list of polarization strings to xrfi on.')
@@ -306,6 +306,8 @@ def get_metrics_ArgumentParser(method_name):
                         help='overwrites existing files (default False)')
         ap.add_argument("--verbose", default=False, action="store_true",
                         help="verbose option for verbose output.")
+        ap.add_argument("--initial_medfilt", default=True, action="store_true",
+                        help="if false, don't start with medfilt.")
     elif method_name == 'xrfi_run':
         ap.prog = 'xrfi_run.py'
         ap.add_argument('--ocalfits_file', default=None, type=str, help='Omnical '

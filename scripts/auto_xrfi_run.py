@@ -32,7 +32,7 @@ xrfi.auto_xrfi_run(data_file=args.data_file, ex_ants=ex_ants,
                    filter_half_widths=filter_half_widths,
                    skip_wgts=skip_wgts,
                    sig_inits=sig_inits,
-                   sig_adjs=sig_adjs,
+                   sig_adjs=sig_adjs, initial_medfilt=args.initial_medfilt,
                    verbose=args.verbose, history=history,
                    xrfi_path=args.xrfi_path, label=args.label,
                    polarizations=polarizations, clobber=args.clobber)

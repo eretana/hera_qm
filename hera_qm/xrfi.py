@@ -398,7 +398,7 @@ def detrend_medminfilt(data, flags=None, Kt=8, Kf=8):
     return out
 
 
-def detrend_medfilt(data, flags=None, Kt=8, Kf=8):
+def detrend_medfilt(data, flags=None, Kt=8, Kf=8, interpolate_sigma_zeros=False):
     """Detrend array using a median filter.
 
     Parameters
@@ -414,7 +414,8 @@ def detrend_medfilt(data, flags=None, Kt=8, Kf=8):
     Kf : int, optional
         The box size in frequency (second) dimension to apply medfilt over. Default
         is 8 pixels.
-
+    interpolate_sigma_zeros : bool, optional
+        If True, interpolate sigma values that are equal to zero. 
     Returns
     -------
     out : array
@@ -435,14 +436,23 @@ def detrend_medfilt(data, flags=None, Kt=8, Kf=8):
         d_sm = medfilt2d(data, kernel_size=(2 * Kt + 1, 2 * Kf + 1))
     d_rs = data - d_sm
     d_sq = np.abs(d_rs)**2
+    #interpolate sigma values that are equal to zero.
+    #If you want. 
+    if interpolate_sigma_zeros:
+        from scipy.interpolate import interp1d
+        zmask = d_sq == 0.
+        x=np.arange(zmask.shape[1])
+        d_sq = np.asarray([interp1d(x[~zm], d[~zm], kind='linear', bounds_error=False, fill_value="extrapolate")(x) for d,zm in zip(d_sq, zmask)])
+            
     # Factor of .456 is to put mod-z scores on same scale as standard deviation.
     sig = np.sqrt(medfilt2d(d_sq, kernel_size=(2 * Kt + 1, 2 * Kf + 1)) / .456)
+        
     # don't divide by zero, instead turn those entries into +inf
     out = robust_divide(d_rs, sig)
     return out[Kt:-Kt, Kf:-Kf]
 
 
-def detrend_meanfilt(data, flags=None, Kt=8, Kf=8):
+def detrend_meanfilt(data, flags=None, Kt=8, Kf=8, interpolate_sigma_zeros=False):
     """Detrend array using a mean filter.
 
     Parameters
@@ -478,6 +488,12 @@ def detrend_meanfilt(data, flags=None, Kt=8, Kf=8):
     d_sm = convolve(data, kernel, mask=flags, boundary='extend')
     d_rs = data - d_sm
     d_sq = np.abs(d_rs)**2
+    if interpolate_sigma_zeros:
+        from scipy.interpolate import interp1d
+        zmask = d_sq == 0.
+        x=np.arange(zmask.shape[1])
+        d_sq = np.asarray([interp1d(x[~zm], d[~zm], kind='linear', bounds_error=False, fill_value="extrapolate")(x) for d,zm in zip(d_sq, zmask)])
+
     sig = np.sqrt(convolve(d_sq, kernel, mask=flags))
     # don't divide by zero, instead turn those entries into +inf
     out = robust_divide(d_rs, sig)
@@ -533,13 +549,13 @@ def zscore_full_array(data, flags=None, modified=False):
     return out
 
 
-def modzscore_1d(data, flags=None, kern=8, detrend=True):
+def modzscore_1d(data, flags=None, kern=8, detrend=True, interpolate_sigma_zeros=False):
     """Calculate modified zscores in 1d.
 
     Parameters
     ----------
     data : array
-        1D data array to detrend.
+        1D data array to detrend. Can also do 2d and detrend along dim 1. 
     flags : array, optional
         1D flag array to be interpretted as mask for d. NOT USED in this function,
         but kept for symmetry with other preprocessing functions.
@@ -549,33 +565,51 @@ def modzscore_1d(data, flags=None, kern=8, detrend=True):
         Whether to detrend the data before calculating zscores. Default is True.
         Setting to False is equivalent to an infinite kernel, but the function
         does it more efficiently.
-
+    interpolate_sigma_zeros : bool, optional
+        If True, interpolate sigma values that are equal to zero. 
     Returns
     -------
     zscore : array
         An array containing the outlier significance metric. Same type and size as data.
     """
+    if data.ndim==1:
+        data1d=True
+    else:
+        data1d=False
+    data = np.atleast_2d(data)
     if detrend:
         # Delay import so scipy is not required for use of hera_qm
         from scipy.signal import medfilt
-
-        kern = _check_convolve_dims(data, kern)
-        data = np.concatenate([data[kern - 1::-1], data, data[:-kern - 1:-1]])
+        kern = _check_convolve_dims(data[0], kern)
+        data = np.hstack([data[:,kern - 1::-1], data, data[:,:-kern - 1:-1]])
         # detrend in 1D. Do real/imag regardless of whether data are complex because it's cheap.
-        d_sm_r = medfilt(data.real, kernel_size=2 * kern + 1)
-        d_sm_i = medfilt(data.imag, kernel_size=2 * kern + 1)
+        d_sm_r = np.asarray([medfilt(d.real, kernel_size=2 * kern + 1) for d in data])
+        d_sm_i = np.asarray([medfilt(d.imag, kernel_size=2 * kern + 1) for d in data])
         d_sm = d_sm_r + 1j * d_sm_i
         d_rs = data - d_sm
         d_sq = np.abs(d_rs)**2
+        #interpolate sigma values that are zero.
+        if interpolate_sigma_zeros:
+            from scipy.interpolate import interp1d
+            zmask = d_sq == 0.
+            x=np.arange(zmask.shape[1])
+            d_sq = np.asarray([interp1d(x[~zmask], d[zmask], kind='linear', bounds_error=False, fill_value="extrapolate")(x) for d in d_sq])
         # Factor of .456 is to put mod-z scores on same scale as standard deviation.
-        sig = np.sqrt(medfilt(d_sq, kernel_size=2 * kern + 1) / .456)
-        zscore = robust_divide(d_rs, sig)[kern:-kern]
+        sig = np.asarray([np.sqrt(medfilt(d, kernel_size=2 * kern + 1) / .456) for d in d_sq])
+        zscore = robust_divide(d_rs, sig)[:,kern:-kern]
     else:
-        d_rs = data - np.nanmedian(data.real) - 1j * np.nanmedian(data.imag)
+        d_rs = data - np.asarray([np.nanmedian(d.real) - 1j * np.nanmedian(d.imag) for d in data])
         d_sq = np.abs(d_rs)**2
         # Factor of .456 is to put mod-z scores on same scale as standard deviation.
-        sig = np.sqrt(np.nanmedian(d_sq) / .456)
+        if interpolate_sigma_zeros:
+            from scipy.interpolate import interp1d
+            zmask = d_sq == 0.
+            x=np.arange(zmask.shape[1])
+            d_sq = np.asarray([interp1d(x[~zmask], d[zmask], kind='linear', bounds_error=False, fill_value="extrapolate")(x) for d in d_sq])
+        sig = np.asarray([np.sqrt(np.nanmedian(d) / .456) for d in d_sq])
         zscore = robust_divide(d_rs, np.array([sig]))
+    if data1d:
+        data=data[0]
     return zscore.astype(data.dtype)
 
 
@@ -1249,7 +1283,7 @@ def xrfi_h1c_pipe(uv, Kt=8, Kf=8, sig_init=6., sig_adj=2., px_threshold=0.2,
 
 def xrfi_pipe(uv, alg='detrend_medfilt', Kt=8, Kf=8, xants=[], cal_mode='gain',
               sig_init=6.0, sig_adj=2.0, label='', run_check=True,
-              check_extra=True, run_check_acceptability=True):
+              check_extra=True, run_check_acceptability=True, interpolate_sigma_zeros=False):
     """Run the xrfi excision pipeline used for H1C IDR2.2.
 
     This pipeline uses the detrending and watershed algorithms above.
@@ -1286,7 +1320,8 @@ def xrfi_pipe(uv, alg='detrend_medfilt', Kt=8, Kf=8, xants=[], cal_mode='gain',
     run_check_acceptability : bool
         Option to check acceptable range of the values of parameters
         on UVFlag Object.
-
+    interpolate_sigma_zeros : bool, optional
+        If True, interpolate sigma values that are zero. 
     Returns
     -------
     uvf_m : UVFlag object
@@ -1299,9 +1334,13 @@ def xrfi_pipe(uv, alg='detrend_medfilt', Kt=8, Kf=8, xants=[], cal_mode='gain',
     flag_xants(uv, xants, run_check=run_check,
                check_extra=check_extra,
                run_check_acceptability=run_check_acceptability)
-    uvf_m = calculate_metric(uv, alg, Kt=Kt, Kf=Kf, cal_mode=cal_mode,
-                             run_check=run_check, check_extra=check_extra,
-                             run_check_acceptability=run_check_acceptability)
+    if not alg == 'modzscore_1d':
+        uvf_m = calculate_metric(uv, alg, Kt=Kt, Kf=Kf, cal_mode=cal_mode,
+                                 run_check=run_check, check_extra=check_extra,
+                                 run_check_acceptability=run_check_acceptability, interpolate_sigma_zeros=interpolate_sigma_zeros)
+    else:
+        uvf_m = calculate_metric(uv, alg, kern=Kf, cal_mode=cal_mode, run_check=run_check,
+                                 check_extra=check_extra, run_check_acceptability=run_check_acceptability, interpolate_sigma_zeros=interpolate_sigma_zeros)
     uvf_m.label = label
     uvf_m.to_waterfall(keep_pol=False, run_check=run_check,
                        check_extra=check_extra,
@@ -1311,9 +1350,15 @@ def xrfi_pipe(uv, alg='detrend_medfilt', Kt=8, Kf=8, xants=[], cal_mode='gain',
     uvf_m.weights_array = uvf_m.weights_array.astype(np.bool).astype(np.float)
     alg_func = algorithm_dict[alg]
     # Pass the z-scores through the filter again to get a zero-centered, width-of-one distribution.
-    uvf_m.metric_array[:, :, 0] = alg_func(uvf_m.metric_array[:, :, 0],
-                                           flags=~(uvf_m.weights_array[:, :, 0].astype(np.bool)),
-                                           Kt=Kt, Kf=Kf)
+    if not alg == 'modzscore_1d':
+        uvf_m.metric_array[:, :, 0] = alg_func(uvf_m.metric_array[:, :, 0],
+                                               flags=~(uvf_m.weights_array[:, :, 0].astype(np.bool)),
+                                               Kt=Kt, Kf=Kf)
+    else:
+        uvf_m.metric_array[:, :, 0] = alg_func(uvf_m.metric_array[:, :, 0],
+                                               flags=~(uvf_m.weights_array[:, :, 0].astype(np.bool)),
+                                               kern=Kf)
+        
     # Flag and watershed on each data product individually.
     # That is, on each complete file (e.g. calibration gains), not on individual
     # antennas/baselines. We don't broadcast until the very end.
@@ -1392,7 +1437,7 @@ def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
 def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_centers=[0.],
                       sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5],
                       polarizations=['ee','nn'], Kt=8, Kf=8, sig_init=6.0, sig_adj=3.0,
-                      return_history=False, verbose=False):
+                      return_history=False, verbose=False, initial_medfilt=True):
     '''
     Flag off of autocorrelations of a uvdata object using a combination of median filter and iterative
     flagging of global chi_sq outliers after fitting and subtracting smooth foregrounds.
@@ -1438,6 +1483,8 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
         Default is 3.0.
     return_history : bool
         if True, return a list flags and metrics from each iteration
+    initial_medfilt : bool
+        if False, skip the initial medfilt. 
     Returns
     -------
     if return_history
@@ -1497,6 +1544,9 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
     #run initial xrfi pipe with 'detrend_medfilt'.
     xrfi_m, xrfi_f = xrfi_pipe(uv_autos, Kf=Kf, Kt=Kt,
                                 sig_init=sig_init, sig_adj=sig_adj)
+    #if we don't want to use medfilt, then set all the flags to false initially. 
+    if not initial_medfilt:
+        xrfi_f.flag_array[:]=False
     flag_history = []
     metric_history = []
     # | in the original flags (xrfi_pipe may already do this).
@@ -1557,9 +1607,9 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
 
 def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=8, sig_init=6.0,
                   sig_adj=3.0,  filter_centers=[0.], filter_half_widths=[200e-9], verbose=False,
-                  sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5],
+                  sig_inits=[6., 5., 3.], sig_adjs=[3., 2., 1.], skip_wgts=[.15, .5, .5],
                   polarizations=['ee','nn'], check_extra=True, run_check_acceptability=True,
-                  run_check=True, label='auto', clobber=False):
+                  run_check=True, label='auto', clobber=False, initial_medfilt=True):
     """
     A first round of xrfi that acts on autocorrelations. First performs a median filter
     then iteratively delay-filters and flags on global z-score outliers.
@@ -1613,6 +1663,8 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
         default 'auto'.
     clobber : bool, optional
         if true, overwrite files.
+    initial_medfilt: 
+        if false, skip initial median filter
     Returns
     -------
         Nothing! (But it does write something to disk :D)
@@ -1627,7 +1679,7 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
     #xants = process_ex_ants(ex_ants=ex_ants)
     uva = HERAData(data_file)
     metrics, flags = xrfi_delay_filter(uv_autos=uva, xants=ex_ants, filter_half_widths=filter_half_widths,
-                                       filter_centers=filter_centers, sig_inits=sig_inits, sig_adjs=sig_adjs,
+                                       filter_centers=filter_centers, sig_inits=sig_inits, sig_adjs=sig_adjs, initial_medfilt=initial_medfilt,
                                        skip_wgts=skip_wgts, polarizations=polarizations, Kt=kt_size, verbose=verbose,
                                        Kf=kf_size, return_history=True, sig_init=sig_init, sig_adj=sig_adj)
     history += "data_file=" + data_file + "\n xants=" + str(ex_ants) + "\n filter_centers=" + str(filter_centers) \
