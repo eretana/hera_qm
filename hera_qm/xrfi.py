@@ -604,7 +604,7 @@ def modzscore_1d(data, flags=None, kern=8, detrend=True, interpolate_sigma_zeros
             from scipy.interpolate import interp1d
             zmask = d_sq == 0.
             x=np.arange(zmask.shape[1])
-            d_sq = np.asarray([interp1d(x[~zmask], d[zmask], kind='nearest', bounds_error=False, fill_value="extrapolate")(x) for d in d_sq])
+            d_sq = np.asarray([interp1d(x[~zm], d[~zm], kind='nearest', bounds_error=False, fill_value="extrapolate")(x) for zm,d in zip(zmask,d_sq)])
         # Factor of .456 is to put mod-z scores on same scale as standard deviation.
         sig = np.asarray([np.sqrt(medfilt(d, kernel_size=2 * kern + 1) / .456) for d in d_sq])
         zscore = robust_divide(d_rs, sig)[:,kern:-kern]
@@ -616,7 +616,7 @@ def modzscore_1d(data, flags=None, kern=8, detrend=True, interpolate_sigma_zeros
             from scipy.interpolate import interp1d
             zmask = d_sq == 0.
             x=np.arange(zmask.shape[1])
-            d_sq = np.asarray([interp1d(x[~zmask], d[zmask], kind='nearest', bounds_error=False, fill_value="extrapolate")(x) for d in d_sq])
+            d_sq = np.asarray([interp1d(x[~zm], d[~zm], kind='nearest', bounds_error=False, fill_value="extrapolate")(x) for zm,d in zip(zmask,d_sq)])
         sig = np.asarray([np.sqrt(np.nanmedian(d) / .456) for d in d_sq])
         zscore = robust_divide(d_rs, np.array([sig]))
     if data1d:
@@ -1364,11 +1364,11 @@ def xrfi_pipe(uv, alg='detrend_medfilt', Kt=8, Kf=8, xants=[], cal_mode='gain',
     if not alg == 'modzscore_1d':
         uvf_m.metric_array[:, :, 0] = alg_func(uvf_m.metric_array[:, :, 0],
                                                flags=~(uvf_m.weights_array[:, :, 0].astype(np.bool)),
-                                               Kt=Kt, Kf=Kf)
+                                               Kt=Kt, Kf=Kf, interpolate_sigma_zeros=interpolate_sigma_zeros)
     else:
         uvf_m.metric_array[:, :, 0] = alg_func(uvf_m.metric_array[:, :, 0],
                                                flags=~(uvf_m.weights_array[:, :, 0].astype(np.bool)),
-                                               kern=Kf)
+                                               kern=Kf, interpolate_sigma_zeros=interpolate_sigma_zeros)
         
     # Flag and watershed on each data product individually.
     # That is, on each complete file (e.g. calibration gains), not on individual
@@ -1384,7 +1384,7 @@ def xrfi_pipe(uv, alg='detrend_medfilt', Kt=8, Kf=8, xants=[], cal_mode='gain',
 
 
 def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
-                sig_adj=2.0, label='', run_check=True, inteprolate_sigma_zeros=False,
+                sig_adj=2.0, label='', run_check=True, interpolate_sigma_zeros=False,
                 check_extra=True, run_check_acceptability=True):
     """Zero-center and normalize the full total chi squared array, flag, and watershed.
 
@@ -1701,7 +1701,7 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
     metrics, flags = xrfi_delay_filter(uv_autos=uva, xants=ex_ants, filter_half_widths=filter_half_widths, alg=alg,
                                        filter_centers=filter_centers, sig_inits=sig_inits, sig_adjs=sig_adjs, initial_medfilt=initial_medfilt,
                                        skip_wgts=skip_wgts, polarizations=polarizations, Kt=kt_size, verbose=verbose,
-                                       Kf=kf_size, return_history=True, sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros)
+                                       Kf=kf_size, return_history=True, sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros=interpolate_sigma_zeros)
     history += "data_file=" + data_file + "\n xants=" + str(ex_ants) + "\n filter_centers=" + str(filter_centers) \
              + "\n sig_inits=" + str(sig_inits) + "\n sig_adjs=" + str(sig_adjs) + "\n skip_wgts=" + str(skip_wgts) \
              + "\n polarizations=" + str(polarizations)  + "\n Kt=" + str(kt_size) + "\n Kf=" + str(kf_size) \
