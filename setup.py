@@ -38,7 +38,7 @@ setup_args = {
     'scripts': ['scripts/ant_metrics_run.py', 'scripts/xrfi_run.py',
                 'scripts/firstcal_metrics_run.py', 'scripts/auto_view.py',
                 'scripts/omnical_metrics_run.py', 'scripts/xrfi_apply.py',
-                'scripts/delay_xrfi_h1c_idr2_1_run.py',
+                'scripts/delay_xrfi_h1c_idr2_1_run.py', 'scripts/auto_xrfi_run.py', 
                 'scripts/xrfi_h1c_run.py', 'scripts/xrfi_day_threshold_run.py'],
     'version': version.version,
     'package_data': {'hera_qm': data_files},
