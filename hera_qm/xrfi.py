@@ -1624,13 +1624,13 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
     history += 'And using uvtools ' + uvtools_version_str + '\n'
     dirname = resolve_xrfi_path(xrfi_path, data_file, jd_subdir=True, label=label)
     #this method supports labeling. Cough Cough.
-    xants = process_ex_ants(ex_ants=ex_ants)
+    #xants = process_ex_ants(ex_ants=ex_ants)
     uva = HERAData(data_file)
-    metrics, flags = xrfi_delay_filter(uv_autos=uva, xants=xants, filter_half_widths=filter_half_widths,
+    metrics, flags = xrfi_delay_filter(uv_autos=uva, xants=ex_ants, filter_half_widths=filter_half_widths,
                                        filter_centers=filter_centers, sig_inits=sig_inits, sig_adjs=sig_adjs,
                                        skip_wgts=skip_wgts, polarizations=polarizations, Kt=kt_size, verbose=verbose,
                                        Kf=kf_size, return_history=True, sig_init=sig_init, sig_adj=sig_adj)
-    history += "data_file=" + data_file + "\n xants=" + str(xants) + "\n filter_centers=" + str(filter_centers) \
+    history += "data_file=" + data_file + "\n xants=" + str(ex_ants) + "\n filter_centers=" + str(filter_centers) \
              + "\n sig_inits=" + str(sig_inits) + "\n sig_adjs=" + str(sig_adjs) + "\n skip_wgts=" + str(skip_wgts) \
              + "\n polarizations=" + str(polarizations)  + "\n Kt=" + str(kt_size) + "\n Kf=" + str(kf_size) \
              + "\n sig_init=" + str(sig_init) + "\n sig_adj=" + str(sig_adj)

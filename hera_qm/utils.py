@@ -269,6 +269,9 @@ def get_metrics_ArgumentParser(method_name):
                         'to full flag array and apply before delay filter.')
     elif method_name == 'auto_xrfi_run':
         ap.prog = 'auto_xrfi_run.py'
+        ap.add_argument('--xrfi_path', default='', type=str,
+                        help='Path to save flag files to. Default is same directory as input file.')
+
         ap.add_argument('--data_file', default=None, type=str, help="Raw autocorrelation "
                         "file to flag on.")
         ap.add_argument('--ex_ants', default=None, type=str,
@@ -301,6 +304,8 @@ def get_metrics_ArgumentParser(method_name):
         ap.add_argument('--label', default='', type=str, help='An identifying label.')
         ap.add_argument("--clobber", default=False, action="store_true",
                         help='overwrites existing files (default False)')
+        ap.add_argument("--verbose", default=False, action="store_true",
+                        help="verbose option for verbose output.")
     elif method_name == 'xrfi_run':
         ap.prog = 'xrfi_run.py'
         ap.add_argument('--ocalfits_file', default=None, type=str, help='Omnical '

@@ -21,9 +21,11 @@ sig_adjs = args.sig_adjs.split(',')
 sig_adjs = [float(sa) for sa in sig_adjs]
 sig_inits = args.sig_inits.split(',')
 sig_inits = [float(si) for si in sig_inits]
-polarizations = arg.polarizations.split(',')
+polarizations = args.polarizations.split(',')
 polarizations = [str(pol)[:2] for pol in polarizations]
-xrfi.auto_xrfi_run(data_file=args.data_file, ex_ants=args.ex_ants,
+ex_ants = args.ex_ants.split(',')
+ex_ants = [int(exa) for exa in ex_ants]
+xrfi.auto_xrfi_run(data_file=args.data_file, ex_ants=ex_ants,
                    kt_size=args.kt_size, kf_size=args.kf_size,
                    sig_init=args.sig_init, sig_adj=args.sig_adj,
                    filter_centers=filter_centers,
