@@ -271,7 +271,7 @@ def get_metrics_ArgumentParser(method_name):
         ap.prog = 'auto_xrfi_run.py'
         ap.add_argument('--xrfi_path', default='', type=str,
                         help='Path to save flag files to. Default is same directory as input file.')
-
+        ap.add_argument('--alg', default='detrend_medfilt', help="algorithm to use in initial flagging.")
         ap.add_argument('--data_file', default=None, type=str, help="Raw autocorrelation "
                         "file to flag on.")
         ap.add_argument('--ex_ants', default=None, type=str,
@@ -308,6 +308,8 @@ def get_metrics_ArgumentParser(method_name):
                         help="verbose option for verbose output.")
         ap.add_argument("--initial_medfilt", default=True, action="store_true",
                         help="if false, don't start with medfilt.")
+        ap.add_argument("--interp_sig_zeros", default=False, action="store_true",
+                        help="if specified, interpolate over zeros in sigma calculations for z-scores.")
     elif method_name == 'xrfi_run':
         ap.prog = 'xrfi_run.py'
         ap.add_argument('--ocalfits_file', default=None, type=str, help='Omnical '

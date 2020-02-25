@@ -500,7 +500,7 @@ def detrend_meanfilt(data, flags=None, Kt=8, Kf=8, interpolate_sigma_zeros=False
     return out[Kt:-Kt, Kf:-Kf]
 
 
-def zscore_full_array(data, flags=None, modified=False):
+def zscore_full_array(data, flags=None, modified=False, interpolate_sigma_zeros=False):
     """Calculate the z-score for full array, rather than a defined kernel size.
 
     This is a special case of
@@ -518,7 +518,8 @@ def zscore_full_array(data, flags=None, modified=False):
         zscore (not modified).
     modified : bool, optional
         Whether to calculate the modified z-scores. Default is False.
-
+    interpolate_sigma_zeros : bool, optional
+        If True, interpolate sigma values that are zero. 
     Returns
     -------
     out : array
@@ -540,6 +541,16 @@ def zscore_full_array(data, flags=None, modified=False):
             med = np.nanmedian(data)
             mad = np.nanmedian(np.abs(data - med))
             d_rs = data - med
+        if interpolate_sigma_zeros:
+            from scipy.interpolate import interp1d
+            zmask = d_rs == 0.
+            x=np.arange(zmask.shape[1])
+            d_rs_r = np.asarray([interp1d(x[~zm], d[~zm], kind='nearest', bounds_error=False, fill_value="extrapolate")(x) for d,zm in zip(d_rs.real, zmask)])
+            if np.any(np.iscomplex(d_rs)):
+                d_rs_i = np.asarray([interp1d(x[~zm], d[~zm], kind='nearest', bounds_error=False, fill_value="extrapolate")(x) for d,zm in zip(d_rs.imag, zmask)])
+            d_rs = d_rs_r + 1j * d_rs_i
+            
+
         # don't divide by zero, instead turn those entries into +inf
         out = robust_divide(d_rs, np.array([1.486 * mad]))
     else:
@@ -1373,7 +1384,7 @@ def xrfi_pipe(uv, alg='detrend_medfilt', Kt=8, Kf=8, xants=[], cal_mode='gain',
 
 
 def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
-                sig_adj=2.0, label='', run_check=True,
+                sig_adj=2.0, label='', run_check=True, inteprolate_sigma_zeros=False,
                 check_extra=True, run_check_acceptability=True):
     """Zero-center and normalize the full total chi squared array, flag, and watershed.
 
@@ -1399,6 +1410,8 @@ def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
     run_check_acceptability : bool
         Option to check acceptable range of the values of parameters
         on UVFlag Object.
+    interpolate_sigma_zeros : bool, optional
+        If True, interpolate sigma values that are zero. 
 
     Returns
     -------
@@ -1411,7 +1424,7 @@ def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
     """
     uvf_m = calculate_metric(uv, alg, cal_mode='tot_chisq', modified=modified,
                              run_check=run_check, check_extra=check_extra,
-                             run_check_acceptability=run_check_acceptability)
+                             run_check_acceptability=run_check_acceptability, interpolate_sigma_zeros=interpolate_sigma_zeros)
     uvf_m.label = label
     uvf_m.to_waterfall(keep_pol=False, run_check=run_check,
                        check_extra=check_extra,
@@ -1434,10 +1447,10 @@ def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
     return uvf_m, uvf_fws
 
 
-def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_centers=[0.],
+def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_centers=[0.], alg='detrend_medfilt',
                       sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5],
                       polarizations=['ee','nn'], Kt=8, Kf=8, sig_init=6.0, sig_adj=3.0,
-                      return_history=False, verbose=False, initial_medfilt=True):
+                      return_history=False, verbose=False, initial_medfilt=True, interpolate_sigma_zeros=False):
     '''
     Flag off of autocorrelations of a uvdata object using a combination of median filter and iterative
     flagging of global chi_sq outliers after fitting and subtracting smooth foregrounds.
@@ -1446,7 +1459,6 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
     #
     Parameters
     ----------
-
     uv_autos : HERAData:
              A HERAData object containing autocorrelations to flag on.
     xants : array-like
@@ -1457,6 +1469,8 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
     filter_centers: array-like
              list of centers of regions in fourier space to filter.
              default, [0.]
+    alg : str, optional
+             algorithm to run for initial flags. 
     sig_inits : array-like
              list of float sig_init values to use during global_flagging
     sig_adjs : array-like
@@ -1485,6 +1499,8 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
         if True, return a list flags and metrics from each iteration
     initial_medfilt : bool
         if False, skip the initial medfilt. 
+    interpolate_sigma_zeros: bool
+        if True, interpolate sigmas that are zero in calculating z-scores. 
     Returns
     -------
     if return_history
@@ -1542,8 +1558,8 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
     nf = len(freqs)
     nt = len(metas['times'])
     #run initial xrfi pipe with 'detrend_medfilt'.
-    xrfi_m, xrfi_f = xrfi_pipe(uv_autos, Kf=Kf, Kt=Kt,
-                                sig_init=sig_init, sig_adj=sig_adj)
+    xrfi_m, xrfi_f = xrfi_pipe(uv_autos, Kf=Kf, Kt=Kt, alg=alg,
+                                sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros=interpolate_sigma_zeros)
     #if we don't want to use medfilt, then set all the flags to false initially. 
     if not initial_medfilt:
         xrfi_f.flag_array[:]=False
@@ -1587,7 +1603,7 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
         #run global_outlier pipe on normalized residual.
         if verbose:
             print('global_chi_sq flagging round %d'%iter)
-        xrfi_m, xrfi_f = chi_sq_pipe(uv_resid, sig_init=si, sig_adj=sa)
+        xrfi_m, xrfi_f = chi_sq_pipe(uv_resid, sig_init=si, sig_adj=sa, interpolate_sigma_zeros=interpolate_sigma_zeros)
         #update flags before next Fourier filter
         flag_history.append(copy.deepcopy(xrfi_f))
         metric_history.append(copy.deepcopy(xrfi_m))
@@ -1605,11 +1621,11 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
 #         they should stick around with more descriptive names.
 #############################################################################
 
-def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=8, sig_init=6.0,
+def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=8, sig_init=6.0, alg='detrend_medfilt',
                   sig_adj=3.0,  filter_centers=[0.], filter_half_widths=[200e-9], verbose=False,
                   sig_inits=[6., 5., 3.], sig_adjs=[3., 2., 1.], skip_wgts=[.15, .5, .5],
                   polarizations=['ee','nn'], check_extra=True, run_check_acceptability=True,
-                  run_check=True, label='auto', clobber=False, initial_medfilt=True):
+                  run_check=True, label='auto', clobber=False, initial_medfilt=True, interpolate_sigma_zeros=False):
     """
     A first round of xrfi that acts on autocorrelations. First performs a median filter
     then iteratively delay-filters and flags on global z-score outliers.
@@ -1629,6 +1645,8 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
     filter_half_widths : array-like
              list of half width of regions in fourier space to filter.
              default, [200e-9]
+    alg: str, optional
+             algorithm to use for initial flags. 
     filter_centers: array-like
              list of centers of regions in fourier space to filter.
              default, [0.]
@@ -1663,8 +1681,10 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
         default 'auto'.
     clobber : bool, optional
         if true, overwrite files.
-    initial_medfilt: 
-        if false, skip initial median filter
+    initial_medfilt : bool, optional
+        if False , skip initial median filter
+    interpolate_sigma_zeros : bool, optional
+        if True, interpolate d_sq zeros. 
     Returns
     -------
         Nothing! (But it does write something to disk :D)
@@ -1678,10 +1698,10 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
     #this method supports labeling. Cough Cough.
     #xants = process_ex_ants(ex_ants=ex_ants)
     uva = HERAData(data_file)
-    metrics, flags = xrfi_delay_filter(uv_autos=uva, xants=ex_ants, filter_half_widths=filter_half_widths,
+    metrics, flags = xrfi_delay_filter(uv_autos=uva, xants=ex_ants, filter_half_widths=filter_half_widths, alg=alg,
                                        filter_centers=filter_centers, sig_inits=sig_inits, sig_adjs=sig_adjs, initial_medfilt=initial_medfilt,
                                        skip_wgts=skip_wgts, polarizations=polarizations, Kt=kt_size, verbose=verbose,
-                                       Kf=kf_size, return_history=True, sig_init=sig_init, sig_adj=sig_adj)
+                                       Kf=kf_size, return_history=True, sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros)
     history += "data_file=" + data_file + "\n xants=" + str(ex_ants) + "\n filter_centers=" + str(filter_centers) \
              + "\n sig_inits=" + str(sig_inits) + "\n sig_adjs=" + str(sig_adjs) + "\n skip_wgts=" + str(skip_wgts) \
              + "\n polarizations=" + str(polarizations)  + "\n Kt=" + str(kt_size) + "\n Kf=" + str(kf_size) \
