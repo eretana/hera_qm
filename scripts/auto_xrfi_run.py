@@ -24,13 +24,13 @@ sig_inits = [float(si) for si in sig_inits]
 polarizations = arg.polarizations.split(',')
 polarizations = [str(pol)[:2] for pol in polarizations]
 xrfi.auto_xrfi_run(data_file=args.data_file, ex_ants=args.ex_ants,
-              kt_size=args.kt_size, kf_size=args.kf_size,
-              sig_init=args.sig_init, sig_adj=args.sig_adj,
-              filter_centers=filter_centers
-              filter_half_widths=filter_half_widths,
-              skip_wgts=skip_wgts,
-              sig_inits=sig_inits,
-              sig_adjs=sig_adjs,
-              verbose=args.verbose, history=history,
-              xrfi_path=args.xrfi_path, label=args.label,
-              polarizations=polarizations, clobber=args.clobber)
+                   kt_size=args.kt_size, kf_size=args.kf_size,
+                   sig_init=args.sig_init, sig_adj=args.sig_adj,
+                   filter_centers=filter_centers,
+                   filter_half_widths=filter_half_widths,
+                   skip_wgts=skip_wgts,
+                   sig_inits=sig_inits,
+                   sig_adjs=sig_adjs,
+                   verbose=args.verbose, history=history,
+                   xrfi_path=args.xrfi_path, label=args.label,
+                   polarizations=polarizations, clobber=args.clobber)

@@ -27,7 +27,7 @@ def get_metrics_ArgumentParser(method_name):
     Parameters
     ----------
     method_name : {"ant_metrics", "firstcal_metrics", "omnical_metrics", "xrfi_run",
-                   "xrfi_apply", "xrfi_h1c_run", "delay_xrfi_h1c_idr2_1_run"}
+                   "xrfi_apply", "xrfi_h1c_run", "delay_xrfi_h1c_idr2_1_run", "auto_xrfi_run"}
         The target wrapper desired.
 
     Returns
@@ -284,14 +284,14 @@ def get_metrics_ArgumentParser(method_name):
                         help='Starting number of sigmas to flag on. Default is 6.0.')
         ap.add_argument('--sig_adj', default=2.0, type=float,
                         help='Number of sigmas to flag on for data adjacent to a flag. Default is 2.0.')
-        ap.add_argument('--filter_centers', default="0.0"", type=str,
+        ap.add_argument('--filter_centers', default="0.0", type=str,
                         help="comma separated float list with center of delay region to filter for RFI flagging. "
                         " Default is 0.0")
         ap.add_argument('--filter_half_widths', default="200e-9", type=str,
                         help='comma separated float list with filter half widths for each fourier region.')
-        ap.add_argument('--sig_inits', default="6., 5., 3."", str,
+        ap.add_argument('--sig_inits', default="6., 5., 3.", type=str,
                         help='comma separated list of initial sigmas for iterative flagging.')
-        ap.add_argument('--sig_adjs', default="2., 2., 1."", type=float, nargs='+',
+        ap.add_argument('--sig_adjs', default="2., 2., 1.", type=float, nargs='+',
                         help='comma separated list of sigmas to flag integration-channels adjacent to initial flags.')
         ap.add_argumetn('--polarizations', default="ee,nn", type=str,
                         help='comma separated list of polarization strings to xrfi on.')
