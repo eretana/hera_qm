@@ -442,7 +442,7 @@ def detrend_medfilt(data, flags=None, Kt=8, Kf=8, interpolate_sigma_zeros=False)
         from scipy.interpolate import interp1d
         zmask = d_sq == 0.
         x=np.arange(zmask.shape[1])
-        d_sq = np.asarray([interp1d(x[~zm], d[~zm], kind='linear', bounds_error=False, fill_value="extrapolate")(x) for d,zm in zip(d_sq, zmask)])
+        d_sq = np.asarray([interp1d(x[~zm], d[~zm], kind='nearest', bounds_error=False, fill_value="extrapolate")(x) for d,zm in zip(d_sq, zmask)])
             
     # Factor of .456 is to put mod-z scores on same scale as standard deviation.
     sig = np.sqrt(medfilt2d(d_sq, kernel_size=(2 * Kt + 1, 2 * Kf + 1)) / .456)
@@ -492,7 +492,7 @@ def detrend_meanfilt(data, flags=None, Kt=8, Kf=8, interpolate_sigma_zeros=False
         from scipy.interpolate import interp1d
         zmask = d_sq == 0.
         x=np.arange(zmask.shape[1])
-        d_sq = np.asarray([interp1d(x[~zm], d[~zm], kind='linear', bounds_error=False, fill_value="extrapolate")(x) for d,zm in zip(d_sq, zmask)])
+        d_sq = np.asarray([interp1d(x[~zm], d[~zm], kind='nearest', bounds_error=False, fill_value="extrapolate")(x) for d,zm in zip(d_sq, zmask)])
 
     sig = np.sqrt(convolve(d_sq, kernel, mask=flags))
     # don't divide by zero, instead turn those entries into +inf
@@ -593,7 +593,7 @@ def modzscore_1d(data, flags=None, kern=8, detrend=True, interpolate_sigma_zeros
             from scipy.interpolate import interp1d
             zmask = d_sq == 0.
             x=np.arange(zmask.shape[1])
-            d_sq = np.asarray([interp1d(x[~zmask], d[zmask], kind='linear', bounds_error=False, fill_value="extrapolate")(x) for d in d_sq])
+            d_sq = np.asarray([interp1d(x[~zmask], d[zmask], kind='nearest', bounds_error=False, fill_value="extrapolate")(x) for d in d_sq])
         # Factor of .456 is to put mod-z scores on same scale as standard deviation.
         sig = np.asarray([np.sqrt(medfilt(d, kernel_size=2 * kern + 1) / .456) for d in d_sq])
         zscore = robust_divide(d_rs, sig)[:,kern:-kern]
@@ -605,7 +605,7 @@ def modzscore_1d(data, flags=None, kern=8, detrend=True, interpolate_sigma_zeros
             from scipy.interpolate import interp1d
             zmask = d_sq == 0.
             x=np.arange(zmask.shape[1])
-            d_sq = np.asarray([interp1d(x[~zmask], d[zmask], kind='linear', bounds_error=False, fill_value="extrapolate")(x) for d in d_sq])
+            d_sq = np.asarray([interp1d(x[~zmask], d[zmask], kind='nearest', bounds_error=False, fill_value="extrapolate")(x) for d in d_sq])
         sig = np.asarray([np.sqrt(np.nanmedian(d) / .456) for d in d_sq])
         zscore = robust_divide(d_rs, np.array([sig]))
     if data1d:
