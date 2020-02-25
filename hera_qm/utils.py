@@ -37,7 +37,7 @@ def get_metrics_ArgumentParser(method_name):
 
     """
     methods = ["ant_metrics", "firstcal_metrics", "omnical_metrics", "xrfi_h1c_run",
-               "delay_xrfi_h1c_idr2_1_run", "xrfi_run", "xrfi_apply", "day_threshold_run"]
+               "delay_xrfi_h1c_idr2_1_run", "xrfi_run", "xrfi_apply", "day_threshold_run", "auto_xrfi_run"]
     if method_name not in methods:
         raise AssertionError('method_name must be one of {}'.format(','.join(methods)))
 
@@ -291,9 +291,9 @@ def get_metrics_ArgumentParser(method_name):
                         help='comma separated float list with filter half widths for each fourier region.')
         ap.add_argument('--sig_inits', default="6., 5., 3.", type=str,
                         help='comma separated list of initial sigmas for iterative flagging.')
-        ap.add_argument('--sig_adjs', default="2., 2., 1.", type=float, nargs='+',
+        ap.add_argument('--sig_adjs', default="2., 2., 1.", type=str,
                         help='comma separated list of sigmas to flag integration-channels adjacent to initial flags.')
-        ap.add_argumetn('--polarizations', default="ee,nn", type=str,
+        ap.add_argument('--polarizations', default="ee,nn", type=str,
                         help='comma separated list of polarization strings to xrfi on.')
         ap.add_argument('--skip_wgts', default=".15, .5, .5", type=str,
                         help='Comma separated list. If fraction of flagged channels on each integration exceeds '
