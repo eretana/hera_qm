@@ -1559,7 +1559,7 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
                   sig_adj=3.0,  filter_centers=[0.], filter_half_widths=[200e-9], verbose=False,
                   sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5],
                   polarizations=['ee','nn'], check_extra=True, run_check_acceptability=True,
-                  run_check=True, clobber=False, label='auto'):
+                  run_check=True, label='auto', clobber=False):
     """
     A first round of xrfi that acts on autocorrelations. First performs a median filter
     then iteratively delay-filters and flags on global z-score outliers.
@@ -1611,9 +1611,11 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
     label : str, optional
         file label for comparing different runs
         default 'auto'.
+    clobber : bool, optional
+        if true, overwrite files.
     Returns
     -------
-
+        Nothing! (But it does write something to disk :D)
     """
     if not HERA_CAL:
         raise ImportError("hera_cal required to use flag_delay_iterative")

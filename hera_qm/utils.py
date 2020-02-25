@@ -267,6 +267,40 @@ def get_metrics_ArgumentParser(method_name):
         dg.add_argument('--waterfalls', default=None, type=str, help='comma separated '
                         'list of npz files containing waterfalls of flags to broadcast '
                         'to full flag array and apply before delay filter.')
+    elif method_name == 'auto_xrfi_run':
+        ap.prog = 'auto_xrfi_run.py'
+        ap.add_argument('--data_file', default=None, type=str, help="Raw autocorrelation "
+                        "file to flag on.")
+        ap.add_argument('--ex_ants', default=None, type=str,
+                        help='Comma-separated list of antennas to exclude. Flags of visibilities '
+                        'formed with these antennas will be set to True.')
+        ap.add_argument('--kt_size', default=8, type=int,
+                        help='Size of kernel in time dimension for detrend in xrfi '
+                        'algorithm. Default is 8.')
+        ap.add_argument('--kf_size', default=8, type=int,
+                        help='Size of kernel in frequency dimension for detrend in '
+                        'xrfi algorithm. Default is 8.')
+        ap.add_argument('--sig_init', default=6.0, type=float,
+                        help='Starting number of sigmas to flag on. Default is 6.0.')
+        ap.add_argument('--sig_adj', default=2.0, type=float,
+                        help='Number of sigmas to flag on for data adjacent to a flag. Default is 2.0.')
+        ap.add_argument('--filter_centers', default="0.0"", type=str,
+                        help="comma separated float list with center of delay region to filter for RFI flagging. "
+                        " Default is 0.0")
+        ap.add_argument('--filter_half_widths', default="200e-9", type=str,
+                        help='comma separated float list with filter half widths for each fourier region.')
+        ap.add_argument('--sig_inits', default="6., 5., 3."", str,
+                        help='comma separated list of initial sigmas for iterative flagging.')
+        ap.add_argument('--sig_adjs', default="2., 2., 1."", type=float, nargs='+',
+                        help='comma separated list of sigmas to flag integration-channels adjacent to initial flags.')
+        ap.add_argumetn('--polarizations', default="ee,nn", type=str,
+                        help='comma separated list of polarization strings to xrfi on.')
+        ap.add_argument('--skip_wgts', default=".15, .5, .5", type=str,
+                        help='Comma separated list. If fraction of flagged channels on each integration exceeds '
+                        ' skip_wgt, flag that integration.')
+        ap.add_argument('--label', default='', type=str, help='An identifying label.')
+        ap.add_argument("--clobber", default=False, action="store_true",
+                        help='overwrites existing files (default False)')
     elif method_name == 'xrfi_run':
         ap.prog = 'xrfi_run.py'
         ap.add_argument('--ocalfits_file', default=None, type=str, help='Omnical '
