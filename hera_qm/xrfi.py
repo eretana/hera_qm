@@ -2,7 +2,7 @@
 # Copyright (c) 2019 the HERA Project
 # Licensed under the MIT License
 """Module for performing RFI identification and excision."""
-
+import itertools
 import numpy as np
 import os
 from collections.abc import Iterable
@@ -1447,9 +1447,9 @@ def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
     return uvf_m, uvf_fws
 
 
-def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_centers=[0.], alg='detrend_medfilt',
-                      sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5],
-                      polarizations=['ee','nn'], Kt=8, Kf=8, sig_init=6.0, sig_adj=3.0,
+def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.], alg='detrend_medfilt',
+                      sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5], fchunk_separators=[75e6, 150e6], 
+                      polarizations=['ee','nn'], Kt=8, Kf=8, sig_init=6.0, sig_adj=3.0, autos=True,
                       return_history=False, verbose=False, initial_medfilt=True, interpolate_sigma_zeros=False):
     '''
     Flag off of autocorrelations of a uvdata object using a combination of median filter and iterative
@@ -1459,8 +1459,8 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
     #
     Parameters
     ----------
-    uv_autos : HERAData:
-             A HERAData object containing autocorrelations to flag on.
+    uv : HERAData:
+             A HERAData object containing (auto)correlations to flag on.
     xants : array-like
 `            List of integers specifying antenna numbers fo exclude.
     filter_half_widths : array-like
@@ -1478,6 +1478,8 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
     skip_wgts : array-like
              list of floats specifying what fraction of frequency RFI flags should cause
              an entire time to be flagged during iterative fourier/global filtering.
+    fchunk : frequency band to process simultaneously. 
+             smaller chunks speeds up filtering. 
     polarizations : array-like
              list of strings specifying what polarizations to perform flagging on .
              Default: ['ee', 'nn']
@@ -1522,9 +1524,9 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
     '''
     if not HERA_CAL:
         raise ImportError("hera_cal required to use flag_delay_iterative")
-    #check that uv_autos is UVData
-    if not issubclass(uv_autos.__class__, HERAData):
-        raise ValueError("uv_autos must be a HERAData object.")
+    #check that uv is UVData
+    if not issubclass(uv.__class__, HERAData):
+        raise ValueError("uv must be a HERAData object.")
     if not isinstance(xants, (list, tuple, np.ndarray)):
         raise ValueError("xants must be a list or tuple.")
     if not isinstance(filter_half_widths, (list, tuple, np.ndarray)):
@@ -1546,19 +1548,23 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
     if not isinstance(polarizations, (list,tuple)):
         raise ValueError("Polarizations must be a list or tuple.")
     #load in autocorrelations
-    bls = [(ant, ant) for ant in uv_autos.antenna_numbers if not ant in xants ]
-    #uv_autos = uv_autos.select(bls=bls, inplace=False, polarizations=polarizations)
+    if autos:
+        bls = [(ant, ant) for ant in uv.antenna_numbers if not ant in xants ]
+    else:
+        bls = [(ant1, ant2) for ant1, ant2 in itertools.combinations(uv.antenna_numbers,2) if not (ant1 in xants or ant2 in xants)]
+    #uv = uv.select(bls=bls, inplace=False, polarizations=polarizations)
     #this uvdata object stores residuals.
-    uv_resid = copy.deepcopy(uv_autos)
-    data, flags, _ = uv_autos.read(bls=bls, polarizations=polarizations)
+    uv_resid = copy.deepcopy(uv)
+    data, flags, _ = uv.read(bls=bls, polarizations=polarizations)
     uv_resid.read(bls=bls, polarizations=polarizations)
     #here is some meta information.
-    metas = uv_autos.get_metadata_dict()
+    metas = uv.get_metadata_dict()
     freqs=metas['freqs']
     nf = len(freqs)
+    df = freqs[1]-freqs[0]
     nt = len(metas['times'])
     #run initial xrfi pipe with 'detrend_medfilt'.
-    xrfi_m, xrfi_f = xrfi_pipe(uv_autos, Kf=Kf, Kt=Kt, alg=alg,
+    xrfi_m, xrfi_f = xrfi_pipe(uv, Kf=Kf, Kt=Kt, alg=alg,
                                 sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros=interpolate_sigma_zeros)
     #if we don't want to use medfilt, then set all the flags to false initially. 
     if not initial_medfilt:
@@ -1578,27 +1584,47 @@ def xrfi_delay_filter(uv_autos, xants, filter_half_widths=[200e-9], filter_cente
     #For a series of initial sigmas and adj sigmas.
     filter_cache = {}
     iter=0
+    #get channels for each frequency band
+    #get channel numbers for each separator
+    cinds = [int(f-freqs.min())/df for f in fchunk_separators]
+    chunk_separators = [0,] + [cind for cind in cinds if (cind >= 0 and cind <=nf)] + [nf,]
+    #define chunks
+    chunks=[]
+    #for the filter center at zero, add the baseline delay width.
+    fc0 = np.where(filter_centers==0.)[0]    
+    for m in range(len(chunk_separators)-1):
+        chunks = chunks + [(chunk_separators[m], chunk_separators[m+1])]
     for si, sa, skip_wgt in zip(sig_inits, sig_adjs, skip_wgts):
         #fourier filter the data using the current set of RFI flags.
         if verbose:
             print('filtering round %d'%iter)
+        skip_flags[bl] = np.zeros((nt, nf)).astype(bool)
         for bl in data:
-            model[bl], resid[bl], info[bl] = dspec.fourier_filter(x=freqs, data=data[bl], wgts=~flags[bl], filter_centers=filter_centers, filter2d=False,
-                                                            filter_half_widths=filter_half_widths, suppression_factors=[1e-9], skip_wgt=skip_wgt, filter_dim=1,
-                                                            mode='dpss_leastsq', fitting_options={'eigenval_cutoff':[1e-12]}, cache=filter_cache)
-            skip_flags[bl] = np.zeros((nt, nf)).astype(bool)
+            fws = copy.deepcopy(filter_half_widths)
+            if len(fc0) > 0:
+                bl_sep=(metas['antpos'][bl[0]] - metas['antpos'][bl[1]])
+                fws[fc0[0]] += bl_sep / 3e8 #add the baseline length to the filter width. 
+            info[bl]={}
+            for chunk in chunks:
+                model[bl][:,chunk[0]:chunk[1]], resid[bl][:,chunk[0]:chunk[1]], info[bl][chunk]  = dspec.fourier_filter(x=freqs[:,chunk[0]:chunk[1]], data=data[bl][:,chunk[0]:chunk[1]],
+                                                                                                                        wgts=~flags[bl][:,chunk[0]:chunk[1]], filter_centers=filter_centers, filter2d=False,
+                                                                                                                        filter_half_widths=fws, suppression_factors=[1e-9], skip_wgt=skip_wgt, filter_dim=1,
+                                                                                                                        mode='dpss_leastsq', fitting_options={'eigenval_cutoff':[1e-12]}, cache=filter_cache)
             #flag times that were skipped by fourier interpolation based on skip_wgt
+            #note that if any chunk is flagged, we flag the whole time. 
             nskip=0
             for j in range(nt):
-                if info[bl][1][j] == 'skipped':
-                    skip_flags[bl][j,:] = True
-                    nskip+=1
+                for chunk in chunks:
+                    if info[bl][chunk][1][j] == 'skipped':
+                        skip_flags[bl][j,:] = True
+                        nskip+=1
+                        break 
             #normalize residual by fitted model.
             resid_normed[bl] = resid[bl] / model[bl]
         #Update the RFI flags to include skipped times.
         flags = DataContainer({k:xrfi_f.flag_array[:,:,0] | skip_flags[k] for k in flags})
         #update resid and auto flags to current flags and residual.
-        uv_autos.update(flags=flags)
+        uv.update(flags=flags)
         uv_resid.update(data=resid_normed, flags=flags)
         #run global_outlier pipe on normalized residual.
         if verbose:
@@ -1698,7 +1724,7 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
     #this method supports labeling. Cough Cough.
     #xants = process_ex_ants(ex_ants=ex_ants)
     uva = HERAData(data_file)
-    metrics, flags = xrfi_delay_filter(uv_autos=uva, xants=ex_ants, filter_half_widths=filter_half_widths, alg=alg,
+    metrics, flags = xrfi_delay_filter(uv=uva, xants=ex_ants, filter_half_widths=filter_half_widths, alg=alg,
                                        filter_centers=filter_centers, sig_inits=sig_inits, sig_adjs=sig_adjs, initial_medfilt=initial_medfilt,
                                        skip_wgts=skip_wgts, polarizations=polarizations, Kt=kt_size, verbose=verbose,
                                        Kf=kf_size, return_history=True, sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros=interpolate_sigma_zeros)
