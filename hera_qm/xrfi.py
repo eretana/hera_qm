@@ -1448,9 +1448,9 @@ def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
 
 
 def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.], alg='detrend_medfilt', input_flag_waterfall=None,
-                      sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5], fchunk_separators=[75e6, 150e6],
-                      polarizations=['ee','nn'], Kt=8, Kf=8, sig_init=6.0, sig_adj=3.0, autos=True, filter_time_avg=False, t_bcast_thresh=0.2,
-                      return_history=False, verbose=False, initial_medfilt=True, interpolate_sigma_zeros=False):
+                      sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5], fchunk_separators=[],
+                      polarizations=['ee','nn'], Kt=8, Kf=8, sig_init=6.0, sig_adj=3.0, autos=True,
+                      return_history=False, verbose=False, interpolate_sigma_zeros=False):
     '''
     Flag off of autocorrelations of a uvdata object using a combination of median filter and iterative
     flagging of global chi_sq outliers after fitting and subtracting smooth foregrounds.
@@ -1499,8 +1499,6 @@ def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.
         Default is 3.0.
     return_history : bool
         if True, return a list flags and metrics from each iteration
-    initial_medfilt : bool
-        if False, skip the initial medfilt.
     interpolate_sigma_zeros: bool
         if True, interpolate sigmas that are zero in calculating z-scores.
     Returns
@@ -1547,9 +1545,10 @@ def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.
         raise ValueError("skip_wgts must have same length as sig_inits.")
     if not isinstance(polarizations, (list,tuple)):
         raise ValueError("Polarizations must be a list or tuple.")
-    #load in autocorrelations
+    #load in autocorrelations.
     if autos:
         bls = [(ant, ant) for ant in uv.antenna_numbers if not ant in xants ]
+    #or cross-correlations.
     else:
         bls = [(ant1, ant2) for ant1, ant2 in itertools.combinations(uv.antenna_numbers,2) if not (ant1 in xants or ant2 in xants)]
     #uv = uv.select(bls=bls, inplace=False, polarizations=polarizations)
@@ -1567,14 +1566,6 @@ def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.
     if initial_medfilt:
         xrfi_m, xrfi_f = xrfi_pipe(uv, Kf=Kf, Kt=Kt, alg=alg,
                                    sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros=interpolate_sigma_zeros)
-    else:
-        #if we don't want to use medfilt, then set all the flags to false initially.
-        xrfi_m = UVFlag(uv, mode='metric')
-        xrfi_m.weights_array = uv.nsample_array * np.logical_not(uv.flag_array).astype(np.float)
-        xrfi_m.to_waterfall(keep_pol=False, )
-        xrfi_f = xrfi_m.copy()
-        xrfi_f.to_flag()
-        xrfi_f.flag_array = np.zeros_like(xrfi_m.metric_array).astype(bool)
     if input_flag_waterfall is None:
         input_flag_waterfall = np.zeros_like(xrfi_f.flag_array).astype(bool)
     xrfi_f.flag_array = xrfi_f.flag_array | input_flag_waterfall
@@ -1609,29 +1600,23 @@ def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.
         if verbose:
             print('filtering round %d'%iter)
         bl0 = list(flags.keys())[0]
-        if filter_time_avg:
-            wgts_f = np.atleast_2d(np.sum((flags[bl0]).astype(float), axis=0) / nt < t_bcast_thresh).astype(float)
-        else:
-            wgts_f = ~flags[bl0]
+        wgts_f = ~flags[bl0]
         for bl in data:
+            model[bl] = np.zeros_like(data[bl])
+            resid[bl] = np.zeros_like(data[bl])
             skip_flags[bl] = np.zeros((nt, nf)).astype(bool)
             fws = copy.deepcopy(filter_half_widths)
             if len(fc0) > 0:
                 bl_sep=(metas['antpos'][bl[0]] - metas['antpos'][bl[1]])
                 fws[fc0[0]] += bl_sep / 3e8 #add the baseline length to the filter width.
             info[bl]={}
-            if filter_time_avg:
-                #if filter time_avg, take a time avg
-                data_t = np.atleast_2d(np.mean(data[bl] * wgts_f , axis=0))
-            else:
-                data_t = data[bl]
+            data_t = data[bl]
             for chunk in chunks:
-                model[bl] = np.zeros_like(data[bl])
-                resid[bl] = np.zeros_like(data[bl])
-                model[bl][:,chunk[0]:chunk[1]], resid[bl][:,chunk[0]:chunk[1]], info[bl][chunk]  = dspec.fourier_filter(x=freqs[chunk[0]:chunk[1]], data=data[bl][:,chunk[0]:chunk[1]],
-                                                                                                                        wgts=wgts_f[:,chunk[0]:chunk[1]], filter_centers=filter_centers, filter2d=False,
-                                                                                                                        filter_half_widths=fws, suppression_factors=[1e-9], skip_wgt=skip_wgt, filter_dim=1,
-                                                                                                                        mode='dpss_leastsq', fitting_options={'eigenval_cutoff':[1e-12]}, cache=filter_cache)
+                model[bl][:,chunk[0]:chunk[1]], resid[bl][:,chunk[0]:chunk[1]], info[bl][chunk]\
+                  = dspec.fourier_filter(x=freqs[chunk[0]:chunk[1]], data=data[bl][:,chunk[0]:chunk[1]],
+                                        wgts=wgts_f[:,chunk[0]:chunk[1]], filter_centers=filter_centers, filter2d=False,
+                                        filter_half_widths=fws, suppression_factors=[1e-9], skip_wgt=skip_wgt, filter_dim=1,
+                                        mode='dpss_leastsq', fitting_options={'eigenval_cutoff':[1e-12]}, cache=filter_cache)
             #flag times that were skipped by fourier interpolation based on skip_wgt
             #note that if any chunk is flagged, we flag the whole time.
             nskip=0
@@ -1756,7 +1741,8 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
                                        filter_centers=filter_centers, sig_inits=sig_inits, sig_adjs=sig_adjs,
                                        initial_medfilt=initial_medfilt, fchunk_separators=[],
                                        skip_wgts=skip_wgts, polarizations=polarizations, Kt=kt_size, verbose=verbose,
-                                       Kf=kf_size, return_history=True, sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros=interpolate_sigma_zeros)
+                                       Kf=kf_size, return_history=True, sig_init=sig_init, sig_adj=sig_adj,
+                                       interpolate_sigma_zeros=interpolate_sigma_zeros)
     history += "data_file=" + data_file + "\n xants=" + str(ex_ants) + "\n filter_centers=" + str(filter_centers) \
              + "\n sig_inits=" + str(sig_inits) + "\n sig_adjs=" + str(sig_adjs) + "\n skip_wgts=" + str(skip_wgts) \
              + "\n polarizations=" + str(polarizations)  + "\n Kt=" + str(kt_size) + "\n Kf=" + str(kf_size) \
@@ -1769,114 +1755,6 @@ def auto_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=
         outpath = os.path.join(dirname, outfile)
         uvf.write(outpath, clobber=clobber)
 
-
-def delay_filter_xrfi_run(data_file, history, ex_ants, xrfi_path='', kt_size=8, kf_size=8, sig_init=6.0, alg='detrend_medfilt',
-                            sig_adj=3.0,  filter_centers=[0.], filter_half_widths=[200e-9], verbose=False,
-                            sig_inits=[6., 5., 3.], sig_adjs=[3., 2., 1.], skip_wgts=[.15, .5, .5],
-                            sig_inits_x=[6.], sig_adjs_x=[3.], skip_wgts_x=[.5], filter_time_avg_x=True,
-                            polarizations=['ee','nn'], check_extra=True, run_check_acceptability=True,
-                            run_check=True, label='auto_tavg_cross', clobber=False, t_bcast_thresh=0.2):
-    """
-    First perform a first round of xrfi filtering that
-    iteratively delay-filters and flags on global z-score outliers.
-
-    Next, go to the autocorrelations, broadcast auto flags in time, average cross-corrs
-    and filter and apply a global_chi_sq filter on cross correlations.
-
-    The metrics and flags from each data product and both
-    rounds are stored in the xrfi_path (which defaults to a subdirectory, see
-    xrfi_path below). Also stored are the a priori flags and combined metrics/flags.
-    location of the data file to run xrfi on.
-
-    Parameters
-    ----------
-    data_file : str
-        The raw visibility (or autocorrelation) file to flag.
-    history : str
-        The history string to include in outputs
-    ex_ants : str
-        name of text file with list of antennas to exclude.
-    filter_half_widths : array-like
-             list of half width of regions in fourier space to filter.
-             default, [200e-9]
-    alg: str, optional
-             algorithm to use for initial flags.
-    filter_centers: array-like
-             list of centers of regions in fourier space to filter.
-             default, [0.]
-    sig_inits : array-like
-             list of float sig_init values to use during global_flagging
-    sig_adjs : array-like
-             list of float sig_adj values for watershed during global flagging.
-    skip_wgts : array-like
-             list of floats specifying what fraction of frequency RFI flags should cause
-             an entire time to be flagged during iterative fourier/global filtering.
-    polarizations : array-like
-             list of strings specifying what polarizations to perform flagging on .
-             Default: ['ee', 'nn']
-    kt_size : int, optional
-        The size of kernel in time dimension for detrend in
-        initial xrfi algorithm.
-        Default is 8.
-    kf_size : int, optional
-        Size of kernel in frequency dimension for detrend in
-        initial xrfi algorithm.
-        Default is 8.
-    sig_init : float, optional
-        The starting number of sigmas to flag on in initial xrfi algorithm.
-        Default is 6.0.
-    sig_adj : float, optional
-        The number of sigmas to flag on in initial xrfi algorithm.
-        Default is 3.0.
-    return_history : bool
-        if True, return a list flags and metrics from each iteration
-    label : str, optional
-        file label for comparing different runs
-        default 'auto'.
-    clobber : bool, optional
-        if true, overwrite files.
-    initial_medfilt : bool, optional
-        if False , skip initial median filter
-    interpolate_sigma_zeros : bool, optional
-        if True, interpolate d_sq zeros.
-    Returns
-    -------
-        Nothing! (But it does write something to disk :D)
-    """
-    if not HERA_CAL:
-        raise ImportError("hera_cal required to use flag_delay_iterative")
-    history = 'Flagging command: delay_filter_xrfi_run: "' + history + '", Using ' + hera_qm_version_str + '\n'
-    history += 'Also using hera_cal version ' + hera_cal_version_str + '\n'
-    history += 'And using uvtools ' + uvtools_version_str + '\n'
-    dirname = resolve_xrfi_path(xrfi_path, data_file, jd_subdir=True, label=label)
-    #this method supports labeling. Cough Cough.
-    #First flag on the autocorrelations.
-    uv = HERAData(data_file)
-    metrics_a, flags_a = xrfi_delay_filter(uv=uv, xants=ex_ants, filter_half_widths=filter_half_widths, alg=alg,
-                                       filter_centers=filter_centers, sig_inits=sig_inits, sig_adjs=sig_adjs,
-                                       initial_medfilt=True, fchunk_separators=[], autos=True,
-                                       skip_wgts=skip_wgts, polarizations=polarizations, Kt=kt_size, verbose=verbose,
-                                       Kf=kf_size, return_history=True, sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros=True)
-    #Next, run a global chi_sq_pipe on filtered, time-averaged cross-correlations.
-    metrics_x, flags_x = xrfi_delay_filter(uv=uv, xants=ex_ants, filter_half_widths=filter_half_widths, alg=alg, autos=False,
-                                           filter_centers=filter_centers, initial_medfilt=False, skip_wgts=skip_wgts_x, t_bcast_thresh=t_bcast_thresh,fchunk_separators=[],
-                                           input_flag_waterfall=flags_a[-1].flag_array, filter_time_avg=filter_time_avg_x,
-                                           interpolate_sigma_zeros=True, sig_inits=sig_inits_x, sig_adjs=sig_adjs_x,return_history=True)
-    history += "data_file=" + data_file + "\n xants=" + str(ex_ants) + "\n filter_centers=" + str(filter_centers) \
-             + "\n sig_inits=" + str(sig_inits) + "\n sig_adjs=" + str(sig_adjs) + "\n skip_wgts=" + str(skip_wgts) \
-             + "\n polarizations=" + str(polarizations)  + "\n Kt=" + str(kt_size) + "\n Kf=" + str(kf_size) \
-             + "\n sig_init=" + str(sig_init) + "\n sig_adj=" + str(sig_adj) \
-             + "\n sig_inits_x=" + str(sig_inits_x) + "\n sig_adjs_x="+str(sig_adjs_x)\
-             + "\n skip_wgts_x=" + str(skip_wgts_x) + "\n t_bcast_thresh="+str(t_bcast_thresh)
-    uvf_dict = {'iter%d_metrics_autos.h5'%d:metric for d, metric in enumerate(metrics_a)}
-    uvf_dict.update({'iter%d_flags_autos.h5'%d: flag for d, flag in enumerate(flags_a)})
-    uvf_dict.update({'iter%d_metrics_cross.h5'%d : metric for d, metric in enumerate(metrics_x)})
-    uvf_dict.update({'iter%d_flags_cross.h5'%d : flag for d, flag in enumerate(flags_x)})
-    basename = qm_utils.strip_extension(os.path.basename(data_file))
-    for ext, uvf in uvf_dict.items():
-        outfile = '.'.join([basename, ext])
-        outpath = os.path.join(dirname, outfile)
-        uvf.write(outpath, clobber=clobber)
 
 def xrfi_run(ocalfits_file, acalfits_file, model_file, data_file, history,
              xrfi_path='', kt_size=8, kf_size=8, sig_init=5.0, sig_adj=2.0,
