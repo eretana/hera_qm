@@ -33,7 +33,7 @@ xrfi.auto_xrfi_run(data_file=args.data_file, ex_ants=ex_ants,
                    skip_wgts=skip_wgts,
                    sig_inits=sig_inits, alg=args.alg,
                    interpolate_sigma_zeros=args.interp_sig_zeros,
-                   sig_adjs=sig_adjs, initial_medfilt=args.initial_medfilt,
+                   sig_adjs=sig_adjs,
                    verbose=args.verbose, history=history,
                    xrfi_path=args.xrfi_path, label=args.label,
                    polarizations=polarizations, clobber=args.clobber)

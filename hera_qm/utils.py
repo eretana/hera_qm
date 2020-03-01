@@ -306,8 +306,6 @@ def get_metrics_ArgumentParser(method_name):
                         help='overwrites existing files (default False)')
         ap.add_argument("--verbose", default=False, action="store_true",
                         help="verbose option for verbose output.")
-        ap.add_argument("--initial_medfilt", default=True, action="store_true",
-                        help="if false, don't start with medfilt.")
         ap.add_argument("--interp_sig_zeros", default=False, action="store_true",
                         help="if specified, interpolate over zeros in sigma calculations for z-scores.")
     elif method_name == 'xrfi_run':
