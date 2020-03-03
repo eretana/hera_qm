@@ -1448,7 +1448,7 @@ def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
 
 
 def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.], alg='detrend_medfilt',
-                      input_flag_waterfall=None, reset_flags=True,
+                      input_flag_waterfall=None, reset_flags=True, reset_nsamples=True,
                       sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5], fchunk_separators=[],
                       polarizations=['ee','nn'], Kt=8, Kf=8, sig_init=6.0, sig_adj=3.0, autos=True,
                       return_history=False, verbose=False, interpolate_sigma_zeros=False):
@@ -1554,15 +1554,18 @@ def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.
     #or cross-correlations.
     else:
         bls = [(ant1, ant2) for ant1, ant2 in itertools.combinations(uv.antenna_numbers,2) if not (ant1 in xants or ant2 in xants)]
+    uv = copy.deepcopy(uv)
+    uv_resid = copy.deepcopy(uv)
+    data, flags, nsamples = uv.read(bls=bls, polarizations=polarizations)
+    uv_resid.read(bls=bls, polarizations=polarizations)
     #uv = uv.select(bls=bls, inplace=False, polarizations=polarizations)
     #this uvdata object stores residuals.
-    uv_resid = copy.deepcopy(uv)
-    data, flags, _ = uv.read(bls=bls, polarizations=polarizations)
     if reset_flags:
         for k in flags:
             flags[k][:]=False
-            
-    uv_resid.read(bls=bls, polarizations=polarizations)
+    if reset_nsamples:
+        for k in nsamples:
+            nsamples[k][:]=1.
     #here is some meta information.
     metas = uv.get_metadata_dict()
     freqs=metas['freqs']
@@ -1573,7 +1576,8 @@ def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.
     if input_flag_waterfall is None:
         input_flag_waterfall = np.zeros_like(xrfi_f.flag_array).astype(bool)
     flags = DataContainer({k:input_flag_waterfall | flags[k] for k in flags})
-    uv.update(flags=flags)
+    uv.update(flags=flags,nsamples=nsamples)
+    uv_resid.update(flags=flags,nsamples=nsamples)
     #run initial xrfi pipe with 'detrend_medfilt'.
     xrfi_m, xrfi_f = xrfi_pipe(uv, Kf=Kf, Kt=Kt, alg=alg,
                                sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros=interpolate_sigma_zeros)
