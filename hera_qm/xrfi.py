@@ -1447,7 +1447,8 @@ def chi_sq_pipe(uv, alg='zscore_full_array', modified=False, sig_init=6.0,
     return uvf_m, uvf_fws
 
 
-def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.], alg='detrend_medfilt', input_flag_waterfall=None,
+def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.], alg='detrend_medfilt',
+                      input_flag_waterfall=None, reset_flags=True,
                       sig_inits=[6., 5., 3.], sig_adjs=[2., 2., 1.], skip_wgts=[.15, .5, .5], fchunk_separators=[],
                       polarizations=['ee','nn'], Kt=8, Kf=8, sig_init=6.0, sig_adj=3.0, autos=True,
                       return_history=False, verbose=False, interpolate_sigma_zeros=False):
@@ -1469,6 +1470,8 @@ def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.
     filter_centers: array-like
              list of centers of regions in fourier space to filter.
              default, [0.]
+    reset_flags : bool, optional
+             if True, ignore the all the flags in the original data.
     alg : str, optional
              algorithm to run for initial flags.
     sig_inits : array-like
@@ -1555,6 +1558,10 @@ def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.
     #this uvdata object stores residuals.
     uv_resid = copy.deepcopy(uv)
     data, flags, _ = uv.read(bls=bls, polarizations=polarizations)
+    if reset_flags:
+        for k in flags:
+            flags[k][:]=False
+            
     uv_resid.read(bls=bls, polarizations=polarizations)
     #here is some meta information.
     metas = uv.get_metadata_dict()
@@ -1562,20 +1569,21 @@ def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.
     nf = len(freqs)
     df = freqs[1]-freqs[0]
     nt = len(metas['times'])
-    #run initial xrfi pipe with 'detrend_medfilt'.
-    if initial_medfilt:
-        xrfi_m, xrfi_f = xrfi_pipe(uv, Kf=Kf, Kt=Kt, alg=alg,
-                                   sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros=interpolate_sigma_zeros)
+    #apply initial flag waterfall
     if input_flag_waterfall is None:
         input_flag_waterfall = np.zeros_like(xrfi_f.flag_array).astype(bool)
-    xrfi_f.flag_array = xrfi_f.flag_array | input_flag_waterfall
+    flags = DataContainer({k:input_flag_waterfall | flags[k] for k in flags})
+    uv.update(flags=flags)
+    #run initial xrfi pipe with 'detrend_medfilt'.
+    xrfi_m, xrfi_f = xrfi_pipe(uv, Kf=Kf, Kt=Kt, alg=alg,
+                               sig_init=sig_init, sig_adj=sig_adj, interpolate_sigma_zeros=interpolate_sigma_zeros)
+    #xrfi_f.flag_array = xrfi_f.flag_array | input_flag_waterfall
     flag_history = []
     metric_history = []
     # | in the original flags (xrfi_pipe may already do this).
-    flags = DataContainer({k:flags[k] | xrfi_f.flag_array[:,:,0] for k in flags})
-    if initial_medfilt:
-        flag_history.append(copy.deepcopy(xrfi_f))
-        metric_history.append(copy.deepcopy(xrfi_m))
+    #flags = DataContainer({k:flags[k] | xrfi_f.flag_array[:,:,0] for k in flags})
+    flag_history.append(copy.deepcopy(xrfi_f))
+    metric_history.append(copy.deepcopy(xrfi_m))
     #initialize data containers to store model and residual from fourier filter.
     resid=DataContainer({})
     model=DataContainer({})
@@ -1620,16 +1628,13 @@ def xrfi_delay_filter(uv, xants, filter_half_widths=[200e-9], filter_centers=[0.
             #flag times that were skipped by fourier interpolation based on skip_wgt
             #note that if any chunk is flagged, we flag the whole time.
             nskip=0
-            if not filter_time_avg:
-                for j in range(nt):
-                    for chunk in chunks:
-                        if info[bl][chunk][1][j] == 'skipped':
-                            skip_flags[bl][j,:] = True
-                            nskip+=1
-                            break
-            else:
-                if info[bl][chunk][1][0] == 'skipped':
-                    skip_flags[bl][:] = True
+            for j in range(nt):
+                for chunk in chunks:
+                    if info[bl][chunk][1][j] == 'skipped':
+                        skip_flags[bl][j,:] = True
+                        nskip+=1
+                        break
+
 
             #normalize residual by fitted model absolute value.
             resid_normed[bl] = resid[bl] / np.abs(model[bl])
